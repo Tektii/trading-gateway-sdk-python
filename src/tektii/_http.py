@@ -7,7 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from tektii_gateway.errors import TektiiProtocolError, raise_for_status
+from tektii.errors import TektiiProtocolError, raise_for_status
 
 # Safety cap on response body size. A well-behaved gateway will never send a
 # response close to this — the cap exists to prevent a misbehaving or hostile

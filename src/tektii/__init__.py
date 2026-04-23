@@ -1,9 +1,9 @@
-"""Tektii Gateway Python SDK."""
+"""Trading Gateway Python SDK."""
 
-from tektii_gateway._version import __version__
-from tektii_gateway.async_client import AsyncTektiiGateway
-from tektii_gateway.client import TektiiGateway
-from tektii_gateway.errors import (
+from tektii._version import __version__
+from tektii.async_client import AsyncTradingGateway
+from tektii.client import TradingGateway
+from tektii.errors import (
     AuthenticationError,
     BadRequestError,
     ConflictError,
@@ -17,7 +17,7 @@ from tektii_gateway.errors import (
     TektiiError,
     TektiiProtocolError,
 )
-from tektii_gateway.models import (
+from tektii.models import (
     Account,
     AccountEvent,
     AccountEventType,
@@ -59,13 +59,13 @@ from tektii_gateway.models import (
     TrailingType,
     WsErrorCode,
 )
-from tektii_gateway.stream import AsyncEventStream, SyncEventStream
+from tektii.stream import AsyncEventStream, SyncEventStream
 
 __all__ = [
     "__version__",
     # Clients
-    "AsyncTektiiGateway",
-    "TektiiGateway",
+    "AsyncTradingGateway",
+    "TradingGateway",
     # Streams
     "AsyncEventStream",
     "SyncEventStream",

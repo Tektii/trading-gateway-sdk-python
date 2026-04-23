@@ -1,4 +1,4 @@
-"""Public models for the Tektii Gateway SDK.
+"""Public models for the Trading Gateway SDK.
 
 REST response models are generated from the OpenAPI spec (see _generated/models.py).
 WebSocket event models are hand-written here since they aren't in the OpenAPI spec.
@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag
 # Re-exports from generated models (REST API types)
 # ---------------------------------------------------------------------------
 # Also re-export event type enums for users who want to match on them
-from tektii_gateway._generated.models import (
+from tektii._generated.models import (
     Account,
     AccountEventType,
     ApiError,
@@ -75,7 +75,7 @@ class BaseEvent(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     timestamp: datetime
-    event_id: str | None = None  # Present only from Tektii backtest engine
+    event_id: str | None = None  # Present only from the backtest engine
 
 
 class PingEvent(BaseEvent):

@@ -1,4 +1,4 @@
-# Contributing to tektii-gateway-sdk-python
+# Contributing to trading-gateway-sdk-python
 
 Thanks for your interest in contributing! This SDK is open source under the
 MIT licence and we welcome bug reports, feature requests, and pull requests.
@@ -8,8 +8,8 @@ MIT licence and we welcome bug reports, feature requests, and pull requests.
 You'll need [uv](https://docs.astral.sh/uv/) for dependency management.
 
 ```bash
-git clone https://github.com/Tektii/tektii-gateway-sdk-python.git
-cd tektii-gateway-sdk-python
+git clone https://github.com/Tektii/trading-gateway-sdk-python.git
+cd trading-gateway-sdk-python
 uv sync
 ```
 
@@ -31,7 +31,7 @@ CI runs the same checks on Python 3.11, 3.12, and 3.13.
 
 ## Regenerating models from the OpenAPI spec
 
-REST models live in `src/tektii_gateway/_generated/models.py` and are
+REST models live in `src/tektii/_generated/models.py` and are
 generated from `openapi.json` at the repo root. **Do not hand-edit them.**
 
 To pick up gateway changes:
@@ -73,15 +73,15 @@ CI runs `./scripts/generate.sh --check` on every PR to catch drift.
       change (user-facing wording, not internal detail).
 - [ ] If you regenerated models, both `openapi.json` and the generated
       file are committed together.
-- [ ] Public API additions are exported from `src/tektii_gateway/__init__.py`
+- [ ] Public API additions are exported from `src/tektii/__init__.py`
       and added to `__all__`.
 
 ## Reporting bugs
 
 Open an issue at
-<https://github.com/Tektii/tektii-gateway-sdk-python/issues> with:
+<https://github.com/Tektii/trading-gateway-sdk-python/issues> with:
 
-- SDK version (`python -c "import tektii_gateway; print(tektii_gateway.__version__)"`).
+- SDK version (`python -c "import tektii; print(tektii.__version__)"`).
 - Python version.
 - Gateway version.
 - A minimal reproduction.

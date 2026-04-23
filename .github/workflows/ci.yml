@@ -91,7 +91,7 @@ jobs:
       - name: Verify py.typed is packaged
         run: |
           set -euo pipefail
-          unzip -l dist/*.whl | grep -q 'tektii_gateway/py\.typed$'
+          unzip -l dist/*.whl | grep -q 'tektii/py\.typed$'
 
       - name: Verify sdist has no dev artefacts
         run: |

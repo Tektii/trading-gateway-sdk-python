@@ -868,7 +868,7 @@ wheels = [
 ]
 
 [[package]]
-name = "tektii-gateway"
+name = "tektii"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

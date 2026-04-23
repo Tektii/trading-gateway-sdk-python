@@ -19,16 +19,16 @@ import respx
 import websockets.asyncio.server
 import websockets.exceptions
 
-from tektii_gateway import stream as stream_mod
-from tektii_gateway.async_client import _STATUS_TOO_MANY_REQUESTS, AsyncTektiiGateway
-from tektii_gateway.client import TektiiGateway
-from tektii_gateway.errors import (
+from tektii import stream as stream_mod
+from tektii.async_client import _STATUS_TOO_MANY_REQUESTS, AsyncTradingGateway
+from tektii.client import TradingGateway
+from tektii.errors import (
     TektiiAPIError,
     TektiiConnectionError,
     TektiiError,
     TektiiProtocolError,
 )
-from tektii_gateway.stream import AsyncEventStream, SyncEventStream
+from tektii.stream import AsyncEventStream, SyncEventStream
 
 from .conftest import SAMPLE_ACCOUNT
 
@@ -40,7 +40,7 @@ from .conftest import SAMPLE_ACCOUNT
 @respx.mock(base_url="http://localhost:8080")
 async def test_timeout_wrapped_to_connection_error(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/account").mock(side_effect=httpx.ReadTimeout("simulated"))
-    async with AsyncTektiiGateway(max_retries=0) as gw:
+    async with AsyncTradingGateway(max_retries=0) as gw:
         with pytest.raises(TektiiConnectionError) as exc_info:
             await gw.get_account()
     assert isinstance(exc_info.value.__cause__, httpx.ReadTimeout)
@@ -51,7 +51,7 @@ async def test_connect_error_wrapped_to_connection_error(
     respx_mock: respx.MockRouter,
 ) -> None:
     respx_mock.get("/v1/account").mock(side_effect=httpx.ConnectError("refused"))
-    async with AsyncTektiiGateway(max_retries=0) as gw:
+    async with AsyncTradingGateway(max_retries=0) as gw:
         with pytest.raises(TektiiConnectionError):
             await gw.get_account()
 
@@ -68,7 +68,7 @@ async def test_get_retries_on_transient_502(respx_mock: respx.MockRouter) -> Non
         httpx.Response(502, json={"code": "BAD_GATEWAY", "message": "upstream bad"}),
         httpx.Response(200, json=SAMPLE_ACCOUNT),
     ]
-    async with AsyncTektiiGateway(max_retries=2) as gw:
+    async with AsyncTradingGateway(max_retries=2) as gw:
         account = await gw.get_account()
     assert account.balance == "10000.00"
     assert route.call_count == 2
@@ -83,7 +83,7 @@ async def test_get_retries_on_timeout_then_succeeds(
         httpx.ReadTimeout("first"),
         httpx.Response(200, json=SAMPLE_ACCOUNT),
     ]
-    async with AsyncTektiiGateway(max_retries=2) as gw:
+    async with AsyncTradingGateway(max_retries=2) as gw:
         account = await gw.get_account()
     assert account.balance == "10000.00"
     assert route.call_count == 2
@@ -94,7 +94,7 @@ async def test_post_order_never_retries(respx_mock: respx.MockRouter) -> None:
     """Retrying POST /v1/orders could duplicate a fill. Ban it unconditionally."""
     route = respx_mock.post("/v1/orders")
     route.side_effect = [httpx.Response(503, json={"code": "UNAVAILABLE", "message": "x"})]
-    async with AsyncTektiiGateway(max_retries=5) as gw:
+    async with AsyncTradingGateway(max_retries=5) as gw:
         with pytest.raises(TektiiAPIError):
             await gw.submit_order("AAPL", "buy", "1")
     # POST must have been attempted exactly once.
@@ -112,7 +112,7 @@ async def test_retry_honours_retry_after_seconds(respx_mock: respx.MockRouter) -
         ),
         httpx.Response(200, json=SAMPLE_ACCOUNT),
     ]
-    async with AsyncTektiiGateway(max_retries=2) as gw:
+    async with AsyncTradingGateway(max_retries=2) as gw:
         account = await gw.get_account()
     assert account.balance == "10000.00"
     assert route.call_count == 2
@@ -124,7 +124,7 @@ async def test_retries_disabled_raises_on_first_failure(
 ) -> None:
     route = respx_mock.get("/v1/account")
     route.side_effect = [httpx.Response(503, json={"code": "x", "message": "y"})]
-    async with AsyncTektiiGateway(max_retries=0) as gw:
+    async with AsyncTradingGateway(max_retries=0) as gw:
         with pytest.raises(TektiiAPIError):
             await gw.get_account()
     assert route.call_count == 1
@@ -142,7 +142,7 @@ async def test_non_json_success_raises_protocol_error(
     respx_mock.get("/v1/account").mock(
         return_value=httpx.Response(200, text="<html/>", headers={"content-type": "text/html"})
     )
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         with pytest.raises(TektiiProtocolError) as exc_info:
             await gw.get_account()
     # Protocol errors must carry method + path, and must NOT leak query string.
@@ -159,7 +159,7 @@ async def test_malformed_json_raises_protocol_error(
             200, content=b"{bad", headers={"content-type": "application/json"}
         )
     )
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         with pytest.raises(TektiiProtocolError):
             await gw.get_account()
 
@@ -176,7 +176,7 @@ async def test_oversized_content_length_raises_protocol_error(
             headers={"content-length": str(100 * 1024 * 1024)},  # 100 MiB advertised
         )
     )
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         with pytest.raises(TektiiProtocolError, match="exceeds cap"):
             await gw.get_account()
 
@@ -188,7 +188,7 @@ async def test_content_type_is_case_insensitive(respx_mock: respx.MockRouter) ->
             200, json=SAMPLE_ACCOUNT, headers={"content-type": "Application/JSON; charset=utf-8"}
         )
     )
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         account = await gw.get_account()
     assert account.balance == "10000.00"
 
@@ -205,7 +205,7 @@ async def test_query_string_not_in_protocol_error_message(
     respx_mock.get("/v1/orders").mock(
         return_value=httpx.Response(200, text="<html/>", headers={"content-type": "text/html"})
     )
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         with pytest.raises(TektiiProtocolError) as exc_info:
             await gw.list_orders(client_order_id="very-sensitive-customer-uuid-42")
     assert "very-sensitive-customer-uuid-42" not in str(exc_info.value)
@@ -221,10 +221,10 @@ async def test_default_user_agent_is_set(respx_mock: respx.MockRouter) -> None:
     route = respx_mock.get("/v1/account").mock(
         return_value=httpx.Response(200, json=SAMPLE_ACCOUNT)
     )
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         await gw.get_account()
     ua = route.calls[0].request.headers.get("user-agent", "")
-    assert ua.startswith("tektii-gateway-python/")
+    assert ua.startswith("tektii-python/")
 
 
 @respx.mock(base_url="http://localhost:8080")
@@ -232,11 +232,11 @@ async def test_headers_kwarg_merges_with_defaults(respx_mock: respx.MockRouter) 
     route = respx_mock.get("/v1/account").mock(
         return_value=httpx.Response(200, json=SAMPLE_ACCOUNT)
     )
-    async with AsyncTektiiGateway(headers={"X-Tenant": "acme"}) as gw:
+    async with AsyncTradingGateway(headers={"X-Tenant": "acme"}) as gw:
         await gw.get_account()
     headers = route.calls[0].request.headers
     assert headers.get("x-tenant") == "acme"
-    assert "tektii-gateway-python/" in headers.get("user-agent", "")
+    assert "tektii-python/" in headers.get("user-agent", "")
 
 
 # ---------------------------------------------------------------------------
@@ -248,18 +248,18 @@ async def test_headers_kwarg_merges_with_defaults(respx_mock: respx.MockRouter) 
 async def test_api_key_env_var_fallback(
     respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("TEKTII_API_KEY", "tk_env_value")
+    monkeypatch.setenv("TRADING_GATEWAY_API_KEY", "tk_env_value")
     route = respx_mock.get("/v1/account").mock(
         return_value=httpx.Response(200, json=SAMPLE_ACCOUNT)
     )
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         await gw.get_account()
     assert route.calls[0].request.headers.get("authorization") == "Bearer tk_env_value"
 
 
 async def test_base_url_env_var_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TEKTII_GATEWAY_URL", "https://gw.env.example.com")
-    gw = AsyncTektiiGateway()
+    monkeypatch.setenv("TRADING_GATEWAY_URL", "https://gw.env.example.com")
+    gw = AsyncTradingGateway()
     try:
         assert gw.base_url == "https://gw.env.example.com"
     finally:
@@ -272,7 +272,7 @@ async def test_base_url_env_var_fallback(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 async def test_naive_datetime_rejected() -> None:
-    gw = AsyncTektiiGateway()
+    gw = AsyncTradingGateway()
     try:
         with pytest.raises(ValueError, match="timezone-aware"):
             await gw.list_orders(since=datetime(2025, 1, 1))  # noqa: DTZ001
@@ -290,7 +290,7 @@ async def test_list_orders_empty_status_list_sends_no_filter(
     respx_mock: respx.MockRouter,
 ) -> None:
     route = respx_mock.get("/v1/orders").mock(return_value=httpx.Response(200, json=[]))
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         await gw.list_orders(status=[])
     params = dict(route.calls[0].request.url.params)
     # Empty list → status param should be omitted entirely, not sent as "".
@@ -303,11 +303,11 @@ async def test_list_orders_empty_status_list_sends_no_filter(
 
 
 async def test_sync_client_inside_running_loop_raises() -> None:
-    """TektiiGateway().get_account() from inside a running event loop must
+    """TradingGateway().get_account() from inside a running event loop must
     raise a TektiiError with an actionable message — *not* a raw
     ``RuntimeError: asyncio.run() ...``.
     """
-    gw = TektiiGateway()
+    gw = TradingGateway()
     with pytest.raises(TektiiError, match="running event loop"):
         gw.get_account()
 

@@ -2,7 +2,7 @@
 
 from pydantic import TypeAdapter
 
-from tektii_gateway.models import (
+from tektii.models import (
     Account,
     AccountEvent,
     Bar,

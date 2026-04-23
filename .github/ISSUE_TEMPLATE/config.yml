@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/Tektii/tektii-gateway-sdk-python/security/advisories/new
+    url: https://github.com/Tektii/trading-gateway-sdk-python/security/advisories/new
     about: Please report security vulnerabilities privately — do not open a public issue.
   - name: Gateway bug (not SDK)
     url: https://github.com/Tektii/trading-gateway/issues

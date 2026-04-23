@@ -24,13 +24,13 @@ from typing import Any, TypeVar
 import httpx
 import pytest
 
-from tektii_gateway import (
-    AsyncTektiiGateway,
+from tektii import (
+    AsyncTradingGateway,
     NotFoundError,
     QuoteEvent,
 )
 
-GATEWAY_URL = os.environ.get("TEKTII_GATEWAY_URL", "http://localhost:8080")
+GATEWAY_URL = os.environ.get("TRADING_GATEWAY_URL", "http://localhost:8080")
 
 T = TypeVar("T")
 
@@ -70,11 +70,11 @@ pytestmark = [
 
 @pytest.fixture
 async def gw():
-    async with AsyncTektiiGateway(base_url=GATEWAY_URL) as client:
+    async with AsyncTradingGateway(base_url=GATEWAY_URL) as client:
         yield client
 
 
-async def test_1_system_endpoints(gw: AsyncTektiiGateway):
+async def test_1_system_endpoints(gw: AsyncTradingGateway):
     health = await gw.get_health()
     assert health.status is not None
 
@@ -93,7 +93,7 @@ async def test_1_system_endpoints(gw: AsyncTektiiGateway):
     assert Decimal(account.balance) > 0
 
 
-async def test_2_market_data(gw: AsyncTektiiGateway):
+async def test_2_market_data(gw: AsyncTradingGateway):
     quote = await gw.get_quote("AAPL")
     bid, ask = Decimal(quote.bid), Decimal(quote.ask)
     assert bid > 0
@@ -105,7 +105,7 @@ async def test_2_market_data(gw: AsyncTektiiGateway):
     assert bars[0].open
 
 
-async def test_3_order_lifecycle(gw: AsyncTektiiGateway):
+async def test_3_order_lifecycle(gw: AsyncTradingGateway):
     # Submit market buy
     handle = await gw.submit_order("AAPL", "buy", "1")
     assert handle.id
@@ -144,7 +144,7 @@ async def test_3_order_lifecycle(gw: AsyncTektiiGateway):
     )
 
 
-async def test_4_limit_order_and_cancel(gw: AsyncTektiiGateway):
+async def test_4_limit_order_and_cancel(gw: AsyncTradingGateway):
     quote = await gw.get_quote("AAPL")
     far_below = str(Decimal(quote.bid) * Decimal("0.5"))
 
@@ -167,7 +167,7 @@ async def test_4_limit_order_and_cancel(gw: AsyncTektiiGateway):
     assert cancelled.status in ("CANCELLED", "cancelled")
 
 
-async def test_5_websocket_streaming(gw: AsyncTektiiGateway):
+async def test_5_websocket_streaming(gw: AsyncTradingGateway):
     events: list[Any] = []
 
     async def _collect() -> None:
@@ -184,7 +184,7 @@ async def test_5_websocket_streaming(gw: AsyncTektiiGateway):
     # This is acceptable in CI where we may not configure subscriptions
 
 
-async def test_6_error_handling(gw: AsyncTektiiGateway):
+async def test_6_error_handling(gw: AsyncTradingGateway):
     with pytest.raises(NotFoundError):
         await gw.get_order("nonexistent_order_id_12345")
 

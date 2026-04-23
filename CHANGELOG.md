@@ -7,14 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] — 2026-04-09
+## [1.5.0] — 2026-04-23
 
-First public release.
+First public release. Published to PyPI as `tektii`. Version starts at 1.5.0
+because the name was previously held by an unrelated package on PyPI; versioning
+above its highest release avoids distribution-filename collisions.
 
 ### Added
 
-- `AsyncTektiiGateway` and `TektiiGateway` clients covering the full Tektii
-  Trading Gateway REST API: account, orders (submit, modify, cancel, list,
+- `AsyncTradingGateway` and `TradingGateway` clients covering the full Trading
+  Gateway REST API: account, orders (submit, modify, cancel, list,
   history), positions (list, get, close), market data (quotes, bars),
   trades, capabilities, status, health, and circuit breakers.
 - `AsyncEventStream` and `SyncEventStream` WebSocket clients with automatic
@@ -34,12 +36,12 @@ First public release.
   transport failures and `502/503/504`. `429` honours `Retry-After`. `POST`
   is never retried to avoid duplicate order submission. Configurable via
   `max_retries` (default `2`, `0` disables).
-- Connection pooling in the sync client: `TektiiGateway` runs a single
-  background event loop + shared `AsyncTektiiGateway`, so polling
+- Connection pooling in the sync client: `TradingGateway` runs a single
+  background event loop + shared `AsyncTradingGateway`, so polling
   strategies no longer pay a TLS handshake per call. The sync client
   refuses to run from inside an existing event loop with a clear error.
-- `TEKTII_API_KEY` and `TEKTII_GATEWAY_URL` environment variable fallbacks.
-- Default `User-Agent: tektii-gateway-python/<version> httpx/<version>`
+- `TRADING_GATEWAY_API_KEY` and `TRADING_GATEWAY_URL` environment variable fallbacks.
+- Default `User-Agent: tektii-python/<version> httpx/<version>`
   with a `headers=` kwarg for adding/overriding request headers.
 - `timeout` accepts `float` or `httpx.Timeout` for granular connect /
   read / write / pool control.
@@ -69,5 +71,5 @@ First public release.
   SHAs.
 - Dependabot for `pip` and `github-actions` ecosystems.
 
-[Unreleased]: https://github.com/Tektii/tektii-gateway-sdk-python/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/Tektii/tektii-gateway-sdk-python/releases/tag/v0.1.0
+[Unreleased]: https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/Tektii/trading-gateway-sdk-python/releases/tag/v1.5.0

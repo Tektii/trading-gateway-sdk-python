@@ -1,4 +1,4 @@
-"""Exception hierarchy for the Tektii Gateway SDK."""
+"""Exception hierarchy for the Trading Gateway SDK."""
 
 from __future__ import annotations
 

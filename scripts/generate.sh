@@ -14,7 +14,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ../tektii-gateway/openapi.json over this file, rerun this script, and
 # commit both the spec and the regenerated models together.
 OPENAPI_SPEC="${PROJECT_DIR}/openapi.json"
-OUTPUT_FILE="${PROJECT_DIR}/src/tektii_gateway/_generated/models.py"
+OUTPUT_FILE="${PROJECT_DIR}/src/tektii/_generated/models.py"
 
 if [ ! -f "$OPENAPI_SPEC" ]; then
     echo "Error: OpenAPI spec not found at $OPENAPI_SPEC"

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-The Tektii Gateway Python SDK follows a rolling-latest support model during
+The Trading Gateway Python SDK follows a rolling-latest support model during
 its beta period. Only the most recent minor release receives security fixes.
 
 | Version | Supported          |
@@ -21,7 +21,7 @@ via one of the following channels:
 
 1. **GitHub Private Vulnerability Reporting** — preferred. Use the "Report
    a vulnerability" button on the repository's
-   [Security tab](https://github.com/Tektii/tektii-gateway-sdk-python/security).
+   [Security tab](https://github.com/Tektii/trading-gateway-sdk-python/security).
 2. **Email** — `security@tektii.com`.
 
 When reporting, please include:
@@ -55,17 +55,17 @@ We will credit reporters in release notes if desired, after the fix ships.
 
 ## Scope
 
-This policy covers the `tektii-gateway` Python package and its packaging
+This policy covers the `tektii` Python package and its packaging
 (PyPI distribution, GitHub Actions workflows).
 
-The Tektii Trading Gateway itself (the Rust daemon this SDK wraps) has its
+The Trading Gateway itself (the Rust daemon this SDK wraps) has its
 own security policy at
 <https://github.com/Tektii/trading-gateway/blob/main/SECURITY.md>.
 
 ## Handling `TektiiAPIError.details`
 
 `TektiiAPIError.details` exposes the gateway's structured error envelope.
-Today the Tektii gateway returns opaque, well-defined codes (e.g.
+Today the Trading Gateway returns opaque, well-defined codes (e.g.
 `{"reject_reason": "INSUFFICIENT_MARGIN"}`). When third-party provider
 adapters ship (Alpaca, IBKR, Saxo, etc.) they may echo broker-provided
 payloads that contain account identifiers, position sizes, or other
@@ -79,7 +79,7 @@ error payloads before they leave the process.
 
 ## Credentials
 
-The SDK reads the API key from the `TEKTII_API_KEY` environment variable
+The SDK reads the API key from the `TRADING_GATEWAY_API_KEY` environment variable
 when none is passed to the constructor, and refuses to transmit it over
 plain `http://` to a non-local host. Do not override this check unless you
 have audited the network path (private VPN, loopback proxy, etc.) — the

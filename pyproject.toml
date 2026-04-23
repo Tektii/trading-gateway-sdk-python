@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tektii-gateway"
+name = "tektii"
 dynamic = ["version"]
 description = "Python SDK for the Tektii Trading Gateway"
 readme = "README.md"
@@ -43,11 +43,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Tektii/tektii-gateway-sdk-python"
-Repository = "https://github.com/Tektii/tektii-gateway-sdk-python"
-Documentation = "https://github.com/Tektii/tektii-gateway-sdk-python#readme"
-Changelog = "https://github.com/Tektii/tektii-gateway-sdk-python/blob/main/CHANGELOG.md"
-Issues = "https://github.com/Tektii/tektii-gateway-sdk-python/issues"
+Homepage = "https://github.com/Tektii/trading-gateway-sdk-python"
+Repository = "https://github.com/Tektii/trading-gateway-sdk-python"
+Documentation = "https://github.com/Tektii/trading-gateway-sdk-python#readme"
+Changelog = "https://github.com/Tektii/trading-gateway-sdk-python/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Tektii/trading-gateway-sdk-python/issues"
 
 [dependency-groups]
 dev = [
@@ -61,17 +61,17 @@ dev = [
 ]
 
 [tool.hatch.version]
-path = "src/tektii_gateway/_version.py"
+path = "src/tektii/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tektii_gateway"]
+packages = ["src/tektii"]
 # PEP 561 marker — ensures downstream type checkers recognize this package
 # as typed even though the file is empty.
-include = ["src/tektii_gateway/py.typed"]
+include = ["src/tektii/py.typed"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/tektii_gateway",
+    "src/tektii",
     "tests",
     "examples",
     "scripts",
@@ -100,7 +100,7 @@ exclude = [
 
 [tool.datamodel-codegen]
 input = "openapi.json"
-output = "src/tektii_gateway/_generated/models.py"
+output = "src/tektii/_generated/models.py"
 output-model-type = "pydantic_v2.BaseModel"
 target-python-version = "3.11"
 use-standard-collections = true
@@ -118,17 +118,17 @@ target-version = "py311"
 [tool.ruff.format]
 # The generated models file is owned by datamodel-code-generator. We should
 # never hand-format it — regenerate it instead.
-exclude = ["src/tektii_gateway/_generated/**"]
+exclude = ["src/tektii/_generated/**"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "UP", "B", "C4", "PL", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"src/tektii_gateway/_generated/*" = ["E501", "PLR0911", "PLR0912", "PLR0913"]
-"src/tektii_gateway/async_client.py" = ["PLR0913", "PLC0415"]
-"src/tektii_gateway/client.py" = ["PLR0913", "PLC0415"]
-"src/tektii_gateway/stream.py" = ["PLR0912", "PLR0913"]
+"src/tektii/_generated/*" = ["E501", "PLR0911", "PLR0912", "PLR0913"]
+"src/tektii/async_client.py" = ["PLR0913", "PLC0415"]
+"src/tektii/client.py" = ["PLR0913", "PLC0415"]
+"src/tektii/stream.py" = ["PLR0912", "PLR0913"]
 "tests/*" = ["PLR2004"]
 
 [tool.mypy]
@@ -145,11 +145,11 @@ asyncio_mode = "auto"
 markers = ["integration: requires running gateway"]
 
 [tool.coverage.run]
-source = ["src/tektii_gateway"]
+source = ["src/tektii"]
 branch = true
 omit = [
-    "src/tektii_gateway/_generated/*",
-    "src/tektii_gateway/_version.py",
+    "src/tektii/_generated/*",
+    "src/tektii/_version.py",
 ]
 
 [tool.coverage.report]

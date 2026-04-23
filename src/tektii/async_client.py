@@ -1,4 +1,4 @@
-"""Async client for the Tektii Trading Gateway."""
+"""Async client for the Trading Gateway."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ from urllib.parse import quote, urlsplit
 
 import httpx
 
-from tektii_gateway._http import auth_headers, build_params, handle_response, http_to_ws_url
-from tektii_gateway._version import __version__
-from tektii_gateway.errors import TektiiConnectionError
-from tektii_gateway.models import (
+from tektii._http import auth_headers, build_params, handle_response, http_to_ws_url
+from tektii._version import __version__
+from tektii.errors import TektiiConnectionError
+from tektii.models import (
     Account,
     Bar,
     CancelAllResult,
@@ -34,19 +34,19 @@ from tektii_gateway.models import (
 )
 
 if TYPE_CHECKING:
-    from tektii_gateway.stream import AsyncEventStream
+    from tektii.stream import AsyncEventStream
 
 
 _LOCALHOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 # Env var names — documented in README and SECURITY.md. Keeping them as
 # module-level constants so users grep easily.
-ENV_API_KEY = "TEKTII_API_KEY"
-ENV_BASE_URL = "TEKTII_GATEWAY_URL"
+ENV_API_KEY = "TRADING_GATEWAY_API_KEY"
+ENV_BASE_URL = "TRADING_GATEWAY_URL"
 
 # Default User-Agent identifies SDK traffic in gateway access logs and helps
 # OSS adoption tracking. Overridable via the ``headers`` kwarg.
-_DEFAULT_USER_AGENT = f"tektii-gateway-python/{__version__} httpx/{httpx.__version__}"
+_DEFAULT_USER_AGENT = f"tektii-python/{__version__} httpx/{httpx.__version__}"
 
 # Retries only run for idempotent methods. POST is deliberately excluded to
 # avoid duplicate orders on transient network blips.
@@ -97,14 +97,14 @@ def _require_aware_datetime(dt: datetime, *, field: str) -> datetime:
     return dt
 
 
-class AsyncTektiiGateway:
-    """Async client for the Tektii Trading Gateway REST + WebSocket API.
+class AsyncTradingGateway:
+    """Async client for the Trading Gateway REST + WebSocket API.
 
     Args:
-        base_url: Gateway base URL. Falls back to ``$TEKTII_GATEWAY_URL``,
+        base_url: Gateway base URL. Falls back to ``$TRADING_GATEWAY_URL``,
             then ``http://localhost:8080``.
         api_key: Bearer API key for authentication. Falls back to
-            ``$TEKTII_API_KEY``.
+            ``$TRADING_GATEWAY_API_KEY``.
         timeout: HTTP request timeout as a float (applied to all phases) or
             an ``httpx.Timeout`` for granular connect/read/write/pool control.
         auto_ack: Automatically ACK WebSocket events (for backtesting).
@@ -162,7 +162,7 @@ class AsyncTektiiGateway:
             f"auto_ack={self.auto_ack})"
         )
 
-    async def __aenter__(self) -> AsyncTektiiGateway:
+    async def __aenter__(self) -> AsyncTradingGateway:
         return self
 
     async def __aexit__(self, *args: Any) -> None:
@@ -561,7 +561,7 @@ class AsyncTektiiGateway:
                 async for event in events:
                     ...
         """
-        from tektii_gateway.stream import AsyncEventStream
+        from tektii.stream import AsyncEventStream
 
         ws_url = http_to_ws_url(self.base_url) + "/v1/ws"
         return AsyncEventStream(

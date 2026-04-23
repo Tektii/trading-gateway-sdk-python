@@ -15,7 +15,7 @@ body:
     id: sdk-version
     attributes:
       label: SDK version
-      description: Run `python -c "import tektii_gateway; print(tektii_gateway.__version__)"`
+      description: Run `python -c "import tektii; print(tektii.__version__)"`
       placeholder: "0.1.0"
     validations:
       required: true

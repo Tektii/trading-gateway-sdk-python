@@ -1,5 +1,5 @@
 <!--
-Thanks for contributing to the Tektii Gateway Python SDK.
+Thanks for contributing to the Trading Gateway Python SDK.
 
 Please do not use pull requests for security vulnerabilities —
 see SECURITY.md for the private reporting process.
@@ -24,7 +24,7 @@ see SECURITY.md for the private reporting process.
 ## Checklist
 
 - [ ] `CHANGELOG.md` updated under `## [Unreleased]` if the change is user-visible.
-- [ ] New public API additions are exported from `src/tektii_gateway/__init__.py`.
+- [ ] New public API additions are exported from `src/tektii/__init__.py`.
 - [ ] Tests cover any new behaviour (regression tests for bug fixes).
 - [ ] If you regenerated models, both `openapi.json` and the generated
       file are committed together.

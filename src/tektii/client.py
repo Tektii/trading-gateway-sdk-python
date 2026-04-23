@@ -1,6 +1,6 @@
-"""Sync client for the Tektii Trading Gateway.
+"""Sync client for the Trading Gateway.
 
-Wraps :class:`AsyncTektiiGateway` by owning a persistent background event
+Wraps :class:`AsyncTradingGateway` by owning a persistent background event
 loop in a dedicated thread. All sync methods dispatch to the async client
 via ``asyncio.run_coroutine_threadsafe`` and block until the result is
 ready. Connections are reused across calls (httpx keeps the pool alive on
@@ -22,15 +22,15 @@ from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
 
-from tektii_gateway._http import http_to_ws_url
-from tektii_gateway.async_client import (
+from tektii._http import http_to_ws_url
+from tektii.async_client import (
     ENV_API_KEY,
     ENV_BASE_URL,
-    AsyncTektiiGateway,
+    AsyncTradingGateway,
     _check_credentials_over_plaintext,
 )
-from tektii_gateway.errors import TektiiError
-from tektii_gateway.models import (
+from tektii.errors import TektiiError
+from tektii.models import (
     Account,
     Bar,
     CancelAllResult,
@@ -49,16 +49,16 @@ from tektii_gateway.models import (
 )
 
 if TYPE_CHECKING:
-    from tektii_gateway.stream import SyncEventStream
+    from tektii.stream import SyncEventStream
 
 _T = TypeVar("_T")
 
 
-class TektiiGateway:
-    """Sync client for the Tektii Trading Gateway REST + WebSocket API.
+class TradingGateway:
+    """Sync client for the Trading Gateway REST + WebSocket API.
 
     Internally this holds a lazily-started background thread running its own
-    ``asyncio`` event loop, through which a single :class:`AsyncTektiiGateway`
+    ``asyncio`` event loop, through which a single :class:`AsyncTradingGateway`
     is shared across all method calls. Connection pooling is preserved
     end-to-end, so a polling strategy does not reopen a TLS connection per
     request.
@@ -67,12 +67,12 @@ class TektiiGateway:
     not from inside an existing event loop (Jupyter ``%autoawait``, FastAPI
     startup hooks, async REPLs). If it detects a running loop on first call
     it raises :class:`TektiiError` telling you to use
-    :class:`AsyncTektiiGateway` instead.
+    :class:`AsyncTradingGateway` instead.
 
     Args:
-        base_url: Gateway base URL. Falls back to ``$TEKTII_GATEWAY_URL``
+        base_url: Gateway base URL. Falls back to ``$TRADING_GATEWAY_URL``
             then ``http://localhost:8080``.
-        api_key: Bearer API key. Falls back to ``$TEKTII_API_KEY``.
+        api_key: Bearer API key. Falls back to ``$TRADING_GATEWAY_API_KEY``.
         timeout: HTTP timeout as float or ``httpx.Timeout``.
         auto_ack: Automatically ACK WebSocket events (for backtesting).
         headers: Extra headers to merge with SDK defaults.
@@ -92,7 +92,7 @@ class TektiiGateway:
         allow_insecure: bool = False,
     ) -> None:
         # Resolve config up front so the user sees env-var and plaintext-HTTP
-        # errors at TektiiGateway() construction time, not on first API call.
+        # errors at TradingGateway() construction time, not on first API call.
         self._base_url = (
             base_url or os.environ.get(ENV_BASE_URL) or "http://localhost:8080"
         ).rstrip("/")
@@ -102,7 +102,7 @@ class TektiiGateway:
             self._base_url, self._api_key, allow_insecure=allow_insecure
         )
 
-        # Everything else is pass-through to AsyncTektiiGateway on first call.
+        # Everything else is pass-through to AsyncTradingGateway on first call.
         # Store the already-resolved values so the background thread doesn't
         # re-read env vars at a different time (which would be confusing
         # behaviour if os.environ changed between __init__ and first call).
@@ -118,7 +118,7 @@ class TektiiGateway:
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
-        self._async_gw: AsyncTektiiGateway | None = None
+        self._async_gw: AsyncTradingGateway | None = None
         self._lock = threading.Lock()
 
     def __repr__(self) -> str:
@@ -133,7 +133,7 @@ class TektiiGateway:
     # Lifecycle
     # -----------------------------------------------------------------------
 
-    def __enter__(self) -> TektiiGateway:
+    def __enter__(self) -> TradingGateway:
         self._ensure_started()
         return self
 
@@ -154,8 +154,8 @@ class TektiiGateway:
                 pass
             else:
                 raise TektiiError(
-                    "TektiiGateway (sync) cannot be used from inside a running "
-                    "event loop. Use AsyncTektiiGateway and 'await' its methods "
+                    "TradingGateway (sync) cannot be used from inside a running "
+                    "event loop. Use AsyncTradingGateway and 'await' its methods "
                     "instead."
                 )
 
@@ -167,12 +167,12 @@ class TektiiGateway:
                 ready.set()
                 loop.run_forever()
 
-            thread = threading.Thread(target=_run, name="tektii-gateway-sync-loop", daemon=True)
+            thread = threading.Thread(target=_run, name="tektii-sync-loop", daemon=True)
             thread.start()
             ready.wait()
 
-            async def _build() -> AsyncTektiiGateway:
-                return AsyncTektiiGateway(**self._config)
+            async def _build() -> AsyncTradingGateway:
+                return AsyncTradingGateway(**self._config)
 
             self._async_gw = asyncio.run_coroutine_threadsafe(_build(), loop).result(timeout=5.0)
             self._loop = loop
@@ -196,7 +196,7 @@ class TektiiGateway:
         if thread is not None:
             thread.join(timeout=5.0)
 
-    def _run(self, fn: Callable[[AsyncTektiiGateway], Coroutine[Any, Any, _T]]) -> _T:
+    def _run(self, fn: Callable[[AsyncTradingGateway], Coroutine[Any, Any, _T]]) -> _T:
         """Run an async gateway call synchronously on the background loop."""
         self._ensure_started()
         assert self._loop is not None
@@ -475,7 +475,7 @@ class TektiiGateway:
                 for event in events:
                     ...
         """
-        from tektii_gateway.stream import SyncEventStream
+        from tektii.stream import SyncEventStream
 
         ws_url = http_to_ws_url(self._base_url) + "/v1/ws"
         return SyncEventStream(

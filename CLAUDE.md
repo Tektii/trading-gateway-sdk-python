@@ -2,7 +2,7 @@
 
 ## What This Repo Is
 
-Python SDK for the [Tektii Trading Gateway](https://github.com/Tektii/trading-gateway). Wraps the gateway's REST + WebSocket API with typed Pydantic models, sync/async clients, and auto-ACK for backtesting.
+Python SDK for the [Trading Gateway](https://github.com/Tektii/trading-gateway). Wraps the gateway's REST + WebSocket API with typed Pydantic models, sync/async clients, and auto-ACK for backtesting.
 
 This is an **open-source client library** — it does not contain any backend logic. The gateway itself lives at `../tektii-gateway/`.
 
@@ -13,9 +13,9 @@ Linear is the source of truth for tasks/bugs/features. See [docs/LINEAR.md](./do
 ## Architecture
 
 ```
-src/tektii_gateway/
-├── client.py            # TektiiGateway (sync) — thin wrapper, calls asyncio.run per method
-├── async_client.py      # AsyncTektiiGateway (async) — real implementation, uses httpx
+src/tektii/
+├── client.py            # TradingGateway (sync) — thin wrapper, calls asyncio.run per method
+├── async_client.py      # AsyncTradingGateway (async) — real implementation, uses httpx
 ├── _http.py             # URL building, auth headers, response→error dispatch
 ├── models.py            # Re-exports generated models + hand-written WebSocket events
 ├── _generated/models.py # Pydantic v2 models generated from OpenAPI spec (DO NOT HAND-EDIT)
@@ -45,9 +45,9 @@ uv run mypy src/                 # Type check (note: not --strict, generated cod
 
 REST API models are generated from `../tektii-gateway/openapi.json` using `datamodel-code-generator`. Config is in `pyproject.toml` under `[tool.datamodel-codegen]`.
 
-**Generated file**: `src/tektii_gateway/_generated/models.py` — DO NOT HAND-EDIT. Regenerate with `./scripts/generate.sh`.
+**Generated file**: `src/tektii/_generated/models.py` — DO NOT HAND-EDIT. Regenerate with `./scripts/generate.sh`.
 
-**Hand-written models**: WebSocket event types live in `src/tektii_gateway/models.py` because the WebSocket protocol isn't in the OpenAPI spec. These reference the generated models (e.g., `CandleEvent.bar: Bar`).
+**Hand-written models**: WebSocket event types live in `src/tektii/models.py` because the WebSocket protocol isn't in the OpenAPI spec. These reference the generated models (e.g., `CandleEvent.bar: Bar`).
 
 ## WebSocket / Auto-ACK
 

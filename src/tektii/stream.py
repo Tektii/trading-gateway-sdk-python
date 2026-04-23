@@ -22,10 +22,10 @@ import websockets.asyncio.client
 import websockets.exceptions
 from pydantic import TypeAdapter
 
-from tektii_gateway.errors import TektiiError
-from tektii_gateway.models import GatewayEvent, PingEvent
+from tektii.errors import TektiiError
+from tektii.models import GatewayEvent, PingEvent
 
-logger = logging.getLogger("tektii_gateway.stream")
+logger = logging.getLogger("tektii.stream")
 
 _event_adapter: TypeAdapter[GatewayEvent] = TypeAdapter(GatewayEvent)
 

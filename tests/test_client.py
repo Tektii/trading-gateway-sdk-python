@@ -1,4 +1,4 @@
-"""Tests for TektiiGateway (sync client) — verifies it wraps async correctly."""
+"""Tests for TradingGateway (sync client) — verifies it wraps async correctly."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import httpx
 import pytest
 import respx
 
-from tektii_gateway.client import TektiiGateway
-from tektii_gateway.errors import NotFoundError
-from tektii_gateway.models import (
+from tektii.client import TradingGateway
+from tektii.errors import NotFoundError
+from tektii.models import (
     Account,
     Bar,
     CancelAllResult,
@@ -26,7 +26,7 @@ from tektii_gateway.models import (
     Quote,
     Trade,
 )
-from tektii_gateway.stream import SyncEventStream
+from tektii.stream import SyncEventStream
 
 from .conftest import (
     SAMPLE_ACCOUNT,
@@ -46,7 +46,7 @@ from .conftest import (
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_get_account(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/account").mock(return_value=httpx.Response(200, json=SAMPLE_ACCOUNT))
-    gw = TektiiGateway()
+    gw = TradingGateway()
     account = gw.get_account()
     assert isinstance(account, Account)
     assert account.balance == "10000.00"
@@ -55,7 +55,7 @@ def test_sync_get_account(respx_mock: respx.MockRouter) -> None:
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_submit_order(respx_mock: respx.MockRouter) -> None:
     respx_mock.post("/v1/orders").mock(return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE))
-    gw = TektiiGateway()
+    gw = TradingGateway()
     handle = gw.submit_order("AAPL", "buy", "1")
     assert isinstance(handle, OrderHandle)
     assert handle.id == "ord_123"
@@ -64,7 +64,7 @@ def test_sync_submit_order(respx_mock: respx.MockRouter) -> None:
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_get_order(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/orders/ord_123").mock(return_value=httpx.Response(200, json=SAMPLE_ORDER))
-    gw = TektiiGateway()
+    gw = TradingGateway()
     order = gw.get_order("ord_123")
     assert isinstance(order, Order)
 
@@ -72,7 +72,7 @@ def test_sync_get_order(respx_mock: respx.MockRouter) -> None:
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_list_positions(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/positions").mock(return_value=httpx.Response(200, json=[SAMPLE_POSITION]))
-    gw = TektiiGateway()
+    gw = TradingGateway()
     positions = gw.list_positions()
     assert len(positions) == 1
     assert isinstance(positions[0], Position)
@@ -81,7 +81,7 @@ def test_sync_list_positions(respx_mock: respx.MockRouter) -> None:
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_get_quote(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/quotes/AAPL").mock(return_value=httpx.Response(200, json=SAMPLE_QUOTE))
-    gw = TektiiGateway()
+    gw = TradingGateway()
     quote = gw.get_quote("AAPL")
     assert isinstance(quote, Quote)
 
@@ -89,7 +89,7 @@ def test_sync_get_quote(respx_mock: respx.MockRouter) -> None:
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_context_manager(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/account").mock(return_value=httpx.Response(200, json=SAMPLE_ACCOUNT))
-    with TektiiGateway() as gw:
+    with TradingGateway() as gw:
         account = gw.get_account()
     assert account.currency == "USD"
 
@@ -99,7 +99,7 @@ def test_sync_api_key(respx_mock: respx.MockRouter) -> None:
     route = respx_mock.get("/v1/account").mock(
         return_value=httpx.Response(200, json=SAMPLE_ACCOUNT)
     )
-    gw = TektiiGateway(api_key="my-key")
+    gw = TradingGateway(api_key="my-key")
     gw.get_account()
     auth = route.calls[0].request.headers.get("authorization")
     assert auth == "Bearer my-key"
@@ -113,7 +113,7 @@ def test_sync_api_key(respx_mock: respx.MockRouter) -> None:
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_list_orders(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/orders").mock(return_value=httpx.Response(200, json=[SAMPLE_ORDER]))
-    orders = TektiiGateway().list_orders()
+    orders = TradingGateway().list_orders()
     assert len(orders) == 1
     assert isinstance(orders[0], Order)
 
@@ -121,7 +121,7 @@ def test_sync_list_orders(respx_mock: respx.MockRouter) -> None:
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_get_order_history(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/orders/history").mock(return_value=httpx.Response(200, json=[SAMPLE_ORDER]))
-    orders = TektiiGateway().get_order_history()
+    orders = TradingGateway().get_order_history()
     assert len(orders) == 1
 
 
@@ -136,7 +136,7 @@ def test_sync_modify_order(respx_mock: respx.MockRouter) -> None:
             },
         )
     )
-    result = TektiiGateway().modify_order("ord_123", quantity="5")
+    result = TradingGateway().modify_order("ord_123", quantity="5")
     assert isinstance(result, ModifyOrderResult)
 
 
@@ -148,7 +148,7 @@ def test_sync_cancel_order(respx_mock: respx.MockRouter) -> None:
             json={"order": SAMPLE_ORDER, "success": True},
         )
     )
-    result = TektiiGateway().cancel_order("ord_123")
+    result = TradingGateway().cancel_order("ord_123")
     assert isinstance(result, CancelOrderResult)
 
 
@@ -165,7 +165,7 @@ def test_sync_cancel_all_orders(respx_mock: respx.MockRouter) -> None:
             },
         )
     )
-    result = TektiiGateway().cancel_all_orders()
+    result = TradingGateway().cancel_all_orders()
     assert isinstance(result, CancelAllResult)
     assert result.cancelled_count == 3
 
@@ -175,7 +175,7 @@ def test_sync_get_position(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/positions/pos_001").mock(
         return_value=httpx.Response(200, json=SAMPLE_POSITION)
     )
-    pos = TektiiGateway().get_position("pos_001")
+    pos = TradingGateway().get_position("pos_001")
     assert isinstance(pos, Position)
 
 
@@ -184,7 +184,7 @@ def test_sync_close_position(respx_mock: respx.MockRouter) -> None:
     route = respx_mock.delete("/v1/positions/pos_001").mock(
         return_value=httpx.Response(200, json=SAMPLE_ORDER_HANDLE)
     )
-    handle = TektiiGateway().close_position("pos_001", quantity="5")
+    handle = TradingGateway().close_position("pos_001", quantity="5")
     assert isinstance(handle, OrderHandle)
     sent = json.loads(route.calls.last.request.content)
     assert sent == {"quantity": "5"}
@@ -195,14 +195,14 @@ def test_sync_close_all_positions(respx_mock: respx.MockRouter) -> None:
     respx_mock.delete("/v1/positions").mock(
         return_value=httpx.Response(200, json=[SAMPLE_ORDER_HANDLE])
     )
-    handles = TektiiGateway().close_all_positions()
+    handles = TradingGateway().close_all_positions()
     assert len(handles) == 1
 
 
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_get_bars(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/bars/AAPL").mock(return_value=httpx.Response(200, json=[SAMPLE_BAR]))
-    bars = TektiiGateway().get_bars("AAPL", "1m")
+    bars = TradingGateway().get_bars("AAPL", "1m")
     assert len(bars) == 1
     assert isinstance(bars[0], Bar)
 
@@ -210,7 +210,7 @@ def test_sync_get_bars(respx_mock: respx.MockRouter) -> None:
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_list_trades(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/trades").mock(return_value=httpx.Response(200, json=[SAMPLE_TRADE]))
-    trades = TektiiGateway().list_trades()
+    trades = TradingGateway().list_trades()
     assert len(trades) == 1
     assert isinstance(trades[0], Trade)
 
@@ -220,7 +220,7 @@ def test_sync_get_capabilities(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/capabilities").mock(
         return_value=httpx.Response(200, json=SAMPLE_CAPABILITIES)
     )
-    assert isinstance(TektiiGateway().get_capabilities(), Capabilities)
+    assert isinstance(TradingGateway().get_capabilities(), Capabilities)
 
 
 @respx.mock(base_url="http://localhost:8080")
@@ -228,13 +228,13 @@ def test_sync_get_status(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/status").mock(
         return_value=httpx.Response(200, json=SAMPLE_CONNECTION_STATUS)
     )
-    assert isinstance(TektiiGateway().get_status(), ConnectionStatus)
+    assert isinstance(TradingGateway().get_status(), ConnectionStatus)
 
 
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_get_health(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/health").mock(return_value=httpx.Response(200, json=SAMPLE_HEALTH))
-    assert isinstance(TektiiGateway().get_health(), DetailedHealthStatus)
+    assert isinstance(TradingGateway().get_health(), DetailedHealthStatus)
 
 
 @respx.mock(base_url="http://localhost:8080")
@@ -242,7 +242,7 @@ def test_sync_get_circuit_breakers(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/circuit-breakers").mock(
         return_value=httpx.Response(200, json=SAMPLE_CIRCUIT_BREAKERS)
     )
-    assert isinstance(TektiiGateway().get_circuit_breakers(), CircuitBreakerStatusResponse)
+    assert isinstance(TradingGateway().get_circuit_breakers(), CircuitBreakerStatusResponse)
 
 
 @respx.mock(base_url="http://localhost:8080")
@@ -250,16 +250,16 @@ def test_sync_reset_circuit_breakers(respx_mock: respx.MockRouter) -> None:
     respx_mock.post("/v1/circuit-breakers/reset").mock(
         return_value=httpx.Response(200, json=SAMPLE_CIRCUIT_BREAKERS)
     )
-    assert isinstance(TektiiGateway().reset_circuit_breakers(), CircuitBreakerStatusResponse)
+    assert isinstance(TradingGateway().reset_circuit_breakers(), CircuitBreakerStatusResponse)
 
 
 def test_sync_repr_redacts_api_key() -> None:
-    gw = TektiiGateway(api_key="tk_sync_secret")
+    gw = TradingGateway(api_key="tk_sync_secret")
     rep = repr(gw)
     assert "tk_sync_secret" not in rep
     assert "'***'" in rep
 
-    rep_no_key = repr(TektiiGateway())
+    rep_no_key = repr(TradingGateway())
     assert "api_key=None" in rep_no_key
 
 
@@ -267,7 +267,7 @@ def test_sync_stream_factory_builds_ws_url() -> None:
     """The sync ``stream()`` factory returns a SyncEventStream with the
     correct ``ws://`` URL. We don't actually connect — just verify wiring.
     """
-    gw = TektiiGateway(base_url="http://localhost:8080")
+    gw = TradingGateway(base_url="http://localhost:8080")
     stream = gw.stream()
     assert isinstance(stream, SyncEventStream)
     assert stream._ws_url == "ws://localhost:8080/v1/ws"
@@ -283,4 +283,4 @@ def test_sync_error_propagates(respx_mock: respx.MockRouter) -> None:
         )
     )
     with pytest.raises(NotFoundError):
-        TektiiGateway().get_order("ord_missing")
+        TradingGateway().get_order("ord_missing")

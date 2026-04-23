@@ -1,15 +1,15 @@
-# Tektii Gateway Python SDK
+# Trading Gateway Python SDK
 
-[![PyPI](https://img.shields.io/pypi/v/tektii-gateway.svg)](https://pypi.org/project/tektii-gateway/)
-[![Python versions](https://img.shields.io/pypi/pyversions/tektii-gateway.svg)](https://pypi.org/project/tektii-gateway/)
-[![CI](https://github.com/Tektii/tektii-gateway-sdk-python/actions/workflows/ci.yml/badge.svg)](https://github.com/Tektii/tektii-gateway-sdk-python/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/tektii.svg)](https://pypi.org/project/tektii/)
+[![Python versions](https://img.shields.io/pypi/pyversions/tektii.svg)](https://pypi.org/project/tektii/)
+[![CI](https://github.com/Tektii/trading-gateway-sdk-python/actions/workflows/ci.yml/badge.svg)](https://github.com/Tektii/trading-gateway-sdk-python/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Python SDK for the [Tektii Trading Gateway](https://github.com/Tektii/trading-gateway) — a unified REST + WebSocket trading proxy that connects your strategies to any broker.
+Python SDK for the [Trading Gateway](https://github.com/Tektii/trading-gateway) — a unified REST + WebSocket trading proxy that connects your strategies to any broker.
 
 Write your strategy once, run it against Alpaca, Binance, Oanda, Saxo, or the Tektii backtesting engine — zero code changes.
 
-> **Status**: v0.1.0 — Beta
+> **Status**: v1.5.0 — Beta
 
 ## Risk disclaimer
 
@@ -22,18 +22,18 @@ licence — **no warranty, see [LICENSE](LICENSE)**.
 ## Install
 
 ```bash
-pip install tektii-gateway
+pip install tektii
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv add tektii-gateway
+uv add tektii
 ```
 
 ## Prerequisites
 
-A running [Tektii Trading Gateway](https://github.com/Tektii/trading-gateway). The fastest way to start:
+A running [Trading Gateway](https://github.com/Tektii/trading-gateway). The fastest way to start:
 
 ```bash
 docker run -e GATEWAY_PROVIDER=mock -p 8080:8080 ghcr.io/tektii/gateway:latest
@@ -44,9 +44,9 @@ This starts the gateway with a mock provider that simulates AAPL price movements
 ## Quickstart
 
 ```python
-from tektii_gateway import TektiiGateway
+from tektii import TradingGateway
 
-gw = TektiiGateway()  # connects to localhost:8080
+gw = TradingGateway()  # connects to localhost:8080
 account = gw.get_account()
 print(f"Balance: {account.balance} {account.currency}")
 
@@ -58,10 +58,10 @@ print(f"Order {order.id}: {order.status}")
 
 ```python
 import asyncio
-from tektii_gateway import AsyncTektiiGateway
+from tektii import AsyncTradingGateway
 
 async def main():
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         account = await gw.get_account()
         print(f"Balance: {account.balance} {account.currency}")
 
@@ -88,17 +88,17 @@ environment variables:
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `TEKTII_API_KEY` | Bearer token sent in the `Authorization` header | _unset_ |
-| `TEKTII_GATEWAY_URL` | Gateway base URL | `http://localhost:8080` |
+| `TRADING_GATEWAY_API_KEY` | Bearer token sent in the `Authorization` header | _unset_ |
+| `TRADING_GATEWAY_URL` | Gateway base URL | `http://localhost:8080` |
 
 ```python
 # Constructor (highest precedence)
-gw = TektiiGateway(api_key="tk_live_…", base_url="https://gw.example.com")
+gw = TradingGateway(api_key="tk_live_…", base_url="https://gw.example.com")
 
 # Environment (fallback)
 import os
-os.environ["TEKTII_API_KEY"] = "tk_live_…"
-gw = TektiiGateway()  # picks up TEKTII_API_KEY automatically
+os.environ["TRADING_GATEWAY_API_KEY"] = "tk_live_…"
+gw = TradingGateway()  # picks up TRADING_GATEWAY_API_KEY automatically
 ```
 
 **Never hardcode a production API key in committed source.** Use your
@@ -116,10 +116,10 @@ Real-time market data and trading events via WebSocket:
 
 ```python
 import asyncio
-from tektii_gateway import AsyncTektiiGateway, CandleEvent, OrderEvent
+from tektii import AsyncTradingGateway, CandleEvent, OrderEvent
 
 async def main():
-    async with AsyncTektiiGateway() as gw:
+    async with AsyncTradingGateway() as gw:
         async with gw.stream() as events:
             async for event in events:
                 match event:
@@ -141,12 +141,12 @@ event types are logged and skipped — they never kill the iterator.
 When running against the Tektii backtesting engine, set `auto_ack=True` to automatically acknowledge events. This controls simulation time progression — the engine waits for your strategy to process each event before advancing.
 
 ```python
-from tektii_gateway import AsyncTektiiGateway, CandleEvent
+from tektii import AsyncTradingGateway, CandleEvent
 from decimal import Decimal
 import asyncio
 
 async def main():
-    async with AsyncTektiiGateway(
+    async with AsyncTradingGateway(
         base_url="http://localhost:8080",  # Engine URL
         auto_ack=True,                      # Auto-ACK for backtest
     ) as gw:
@@ -181,12 +181,12 @@ The gateway manages SL/TP orders across all brokers with a unified interface —
 ### Client Construction
 
 ```python
-from tektii_gateway import TektiiGateway, AsyncTektiiGateway
+from tektii import TradingGateway, AsyncTradingGateway
 
 # Sync (notebooks, simple scripts, production too)
-gw = TektiiGateway(
-    base_url="http://localhost:8080",  # or $TEKTII_GATEWAY_URL
-    api_key=None,                       # or $TEKTII_API_KEY
+gw = TradingGateway(
+    base_url="http://localhost:8080",  # or $TRADING_GATEWAY_URL
+    api_key=None,                       # or $TRADING_GATEWAY_API_KEY
     timeout=30.0,                       # float or httpx.Timeout
     auto_ack=False,                     # auto-ACK for backtesting
     headers={"X-Tenant": "acme"},       # extra headers (optional)
@@ -195,14 +195,14 @@ gw = TektiiGateway(
 )
 
 # Async (high-throughput strategies, async frameworks)
-gw = AsyncTektiiGateway(...)
+gw = AsyncTradingGateway(...)
 
 # Both support context managers; using `with` / `async with` ensures the
 # HTTP connection pool is cleaned up on exit.
-async with AsyncTektiiGateway() as gw:
+async with AsyncTradingGateway() as gw:
     ...
 
-with TektiiGateway() as gw:
+with TradingGateway() as gw:
     ...
 ```
 
@@ -210,7 +210,7 @@ The sync client shares a single background event loop + HTTP connection
 pool across all calls, so a polling strategy does not pay a TLS handshake
 per request. It **cannot be called from inside an existing event loop**
 (e.g., inside a Jupyter cell with `%autoawait` or a FastAPI startup hook) —
-use `AsyncTektiiGateway` there instead.
+use `AsyncTradingGateway` there instead.
 
 ### Orders
 
@@ -265,15 +265,15 @@ All events can be pattern-matched with Python's `match`/`case` syntax.
 ## Error Handling
 
 ```python
-from tektii_gateway import (
-    TektiiGateway,
+from tektii import (
+    TradingGateway,
     TektiiAPIError,
     TektiiConnectionError,
     OrderRejectedError,
     NotFoundError,
 )
 
-gw = TektiiGateway()
+gw = TradingGateway()
 try:
     gw.submit_order("AAPL", "buy", "999999")
 except OrderRejectedError as e:
@@ -353,13 +353,13 @@ orders = gw.list_orders(since=datetime(2025, 1, 1, tzinfo=UTC))
 ## Requirements
 
 - Python 3.11+
-- A running [Tektii Trading Gateway](https://github.com/Tektii/trading-gateway)
+- A running [Trading Gateway](https://github.com/Tektii/trading-gateway)
 
 ## Development
 
 ```bash
-git clone https://github.com/Tektii/tektii-gateway-sdk-python
-cd tektii-gateway-sdk-python
+git clone https://github.com/Tektii/trading-gateway-sdk-python
+cd trading-gateway-sdk-python
 uv sync          # Install deps + create venv
 uv run pytest    # Run tests
 uv run ruff check src/ tests/  # Lint
@@ -377,10 +377,10 @@ Response models are generated from the gateway's OpenAPI spec using `datamodel-c
 ### Project structure
 
 ```
-src/tektii_gateway/
+src/tektii/
 ├── __init__.py          # Public exports
-├── client.py            # TektiiGateway (sync, persistent background loop)
-├── async_client.py      # AsyncTektiiGateway (async, retries, env vars)
+├── client.py            # TradingGateway (sync, persistent background loop)
+├── async_client.py      # AsyncTradingGateway (async, retries, env vars)
 ├── _http.py             # Shared HTTP utilities + response safety caps
 ├── models.py            # Re-exports + WebSocket event models
 ├── _generated/models.py # Generated from OpenAPI spec (DO NOT EDIT)

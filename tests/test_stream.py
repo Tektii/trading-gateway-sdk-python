@@ -10,8 +10,8 @@ import random
 import websockets
 import websockets.asyncio.server
 
-from tektii_gateway.models import CandleEvent, ErrorEvent, OrderEvent
-from tektii_gateway.stream import AsyncEventStream, SyncEventStream
+from tektii.models import CandleEvent, ErrorEvent, OrderEvent
+from tektii.stream import AsyncEventStream, SyncEventStream
 
 
 async def _run_ws_server(handler, port: int = 0):

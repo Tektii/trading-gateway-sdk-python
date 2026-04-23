@@ -2,7 +2,7 @@
 
 import pytest
 
-from tektii_gateway.errors import (
+from tektii.errors import (
     AuthenticationError,
     BadRequestError,
     ConflictError,
