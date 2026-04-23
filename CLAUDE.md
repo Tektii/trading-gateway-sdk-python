@@ -33,7 +33,7 @@ src/tektii_gateway/
 
 ```bash
 uv sync                          # Install all deps (runtime + dev)
-uv run pytest                    # Run tests (69 tests)
+uv run pytest                    # Run tests (153 tests)
 uv run pytest -v                 # Verbose test output
 uv run ruff check src/ tests/    # Lint
 uv run mypy src/                 # Type check (note: not --strict, generated code has issues)

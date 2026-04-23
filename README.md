@@ -71,6 +71,16 @@ async def main():
 asyncio.run(main())
 ```
 
+## Example strategies
+
+End-to-end reference strategies that use this SDK live in the gateway repository under
+[`examples/python/`](https://github.com/Tektii/trading-gateway/tree/main/examples/python):
+
+- [`ma_crossover/`](https://github.com/Tektii/trading-gateway/tree/main/examples/python/ma_crossover) — moving-average crossover with bracket orders and a small state machine.
+- [`rsi_momentum/`](https://github.com/Tektii/trading-gateway/tree/main/examples/python/rsi_momentum) — RSI-based momentum strategy.
+
+Each example is a self-contained strategy with its own tests and README, runnable against the mock provider, a live broker, or the Tektii backtest engine.
+
 ## Credentials
 
 The SDK never hardcodes credentials. Pass the API key via constructor, or via
