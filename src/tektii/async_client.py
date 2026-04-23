@@ -14,7 +14,7 @@ import httpx
 
 from tektii._http import auth_headers, build_params, handle_response, http_to_ws_url
 from tektii._version import __version__
-from tektii.errors import TektiiConnectionError
+from tektii.errors import APIConnectionError
 from tektii.models import (
     Account,
     Bar,
@@ -188,7 +188,7 @@ class AsyncTradingGateway:
                 response = await self._client.request(method, path, params=params, json=json)
             except (httpx.TimeoutException, httpx.TransportError, httpx.NetworkError) as err:
                 if attempt >= retries:
-                    raise TektiiConnectionError(
+                    raise APIConnectionError(
                         f"{method} {path} failed after {attempt + 1} attempt(s): "
                         f"{type(err).__name__}: {err}"
                     ) from err

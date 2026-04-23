@@ -23,17 +23,17 @@ from tektii import stream as stream_mod
 from tektii.async_client import _STATUS_TOO_MANY_REQUESTS, AsyncTradingGateway
 from tektii.client import TradingGateway
 from tektii.errors import (
-    TektiiAPIError,
-    TektiiConnectionError,
+    APIConnectionError,
+    APIProtocolError,
+    APIStatusError,
     TektiiError,
-    TektiiProtocolError,
 )
 from tektii.stream import AsyncEventStream
 
 from .conftest import SAMPLE_ACCOUNT
 
 # ---------------------------------------------------------------------------
-# Transport error wrapping — httpx errors become TektiiConnectionError
+# Transport error wrapping — httpx errors become APIConnectionError
 # ---------------------------------------------------------------------------
 
 
@@ -41,7 +41,7 @@ from .conftest import SAMPLE_ACCOUNT
 async def test_timeout_wrapped_to_connection_error(respx_mock: respx.MockRouter) -> None:
     respx_mock.get("/v1/account").mock(side_effect=httpx.ReadTimeout("simulated"))
     async with AsyncTradingGateway(max_retries=0) as gw:
-        with pytest.raises(TektiiConnectionError) as exc_info:
+        with pytest.raises(APIConnectionError) as exc_info:
             await gw.get_account()
     assert isinstance(exc_info.value.__cause__, httpx.ReadTimeout)
 
@@ -52,7 +52,7 @@ async def test_connect_error_wrapped_to_connection_error(
 ) -> None:
     respx_mock.get("/v1/account").mock(side_effect=httpx.ConnectError("refused"))
     async with AsyncTradingGateway(max_retries=0) as gw:
-        with pytest.raises(TektiiConnectionError):
+        with pytest.raises(APIConnectionError):
             await gw.get_account()
 
 
@@ -95,7 +95,7 @@ async def test_post_order_never_retries(respx_mock: respx.MockRouter) -> None:
     route = respx_mock.post("/v1/orders")
     route.side_effect = [httpx.Response(503, json={"code": "UNAVAILABLE", "message": "x"})]
     async with AsyncTradingGateway(max_retries=5) as gw:
-        with pytest.raises(TektiiAPIError):
+        with pytest.raises(APIStatusError):
             await gw.submit_order("AAPL", "buy", "1")
     # POST must have been attempted exactly once.
     assert route.call_count == 1
@@ -125,7 +125,7 @@ async def test_retries_disabled_raises_on_first_failure(
     route = respx_mock.get("/v1/account")
     route.side_effect = [httpx.Response(503, json={"code": "x", "message": "y"})]
     async with AsyncTradingGateway(max_retries=0) as gw:
-        with pytest.raises(TektiiAPIError):
+        with pytest.raises(APIStatusError):
             await gw.get_account()
     assert route.call_count == 1
 
@@ -143,7 +143,7 @@ async def test_non_json_success_raises_protocol_error(
         return_value=httpx.Response(200, text="<html/>", headers={"content-type": "text/html"})
     )
     async with AsyncTradingGateway() as gw:
-        with pytest.raises(TektiiProtocolError) as exc_info:
+        with pytest.raises(APIProtocolError) as exc_info:
             await gw.get_account()
     # Protocol errors must carry method + path, and must NOT leak query string.
     assert exc_info.value.method == "GET"
@@ -160,7 +160,7 @@ async def test_malformed_json_raises_protocol_error(
         )
     )
     async with AsyncTradingGateway() as gw:
-        with pytest.raises(TektiiProtocolError):
+        with pytest.raises(APIProtocolError):
             await gw.get_account()
 
 
@@ -177,7 +177,7 @@ async def test_oversized_content_length_raises_protocol_error(
         )
     )
     async with AsyncTradingGateway() as gw:
-        with pytest.raises(TektiiProtocolError, match="exceeds cap"):
+        with pytest.raises(APIProtocolError, match="exceeds cap"):
             await gw.get_account()
 
 
@@ -206,7 +206,7 @@ async def test_query_string_not_in_protocol_error_message(
         return_value=httpx.Response(200, text="<html/>", headers={"content-type": "text/html"})
     )
     async with AsyncTradingGateway() as gw:
-        with pytest.raises(TektiiProtocolError) as exc_info:
+        with pytest.raises(APIProtocolError) as exc_info:
             await gw.list_orders(client_order_id="very-sensitive-customer-uuid-42")
     assert "very-sensitive-customer-uuid-42" not in str(exc_info.value)
 

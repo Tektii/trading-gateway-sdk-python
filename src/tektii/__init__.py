@@ -4,6 +4,9 @@ from tektii._version import __version__
 from tektii.async_client import AsyncTradingGateway
 from tektii.client import TradingGateway
 from tektii.errors import (
+    APIConnectionError,
+    APIProtocolError,
+    APIStatusError,
     AuthenticationError,
     BadRequestError,
     ConflictError,
@@ -12,10 +15,7 @@ from tektii.errors import (
     ProviderUnavailableError,
     RateLimitedError,
     ServerError,
-    TektiiAPIError,
-    TektiiConnectionError,
     TektiiError,
-    TektiiProtocolError,
 )
 from tektii.models import (
     Account,
@@ -71,9 +71,9 @@ __all__ = [
     "SyncEventStream",
     # Errors
     "TektiiError",
-    "TektiiAPIError",
-    "TektiiConnectionError",
-    "TektiiProtocolError",
+    "APIStatusError",
+    "APIConnectionError",
+    "APIProtocolError",
     "BadRequestError",
     "NotFoundError",
     "OrderRejectedError",

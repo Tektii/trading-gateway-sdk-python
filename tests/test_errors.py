@@ -3,6 +3,7 @@
 import pytest
 
 from tektii.errors import (
+    APIStatusError,
     AuthenticationError,
     BadRequestError,
     ConflictError,
@@ -11,26 +12,25 @@ from tektii.errors import (
     ProviderUnavailableError,
     RateLimitedError,
     ServerError,
-    TektiiAPIError,
     TektiiError,
     raise_for_status,
 )
 
 
 def test_error_hierarchy() -> None:
-    assert issubclass(TektiiAPIError, TektiiError)
-    assert issubclass(BadRequestError, TektiiAPIError)
-    assert issubclass(NotFoundError, TektiiAPIError)
-    assert issubclass(OrderRejectedError, TektiiAPIError)
-    assert issubclass(AuthenticationError, TektiiAPIError)
-    assert issubclass(RateLimitedError, TektiiAPIError)
-    assert issubclass(ConflictError, TektiiAPIError)
-    assert issubclass(ProviderUnavailableError, TektiiAPIError)
-    assert issubclass(ServerError, TektiiAPIError)
+    assert issubclass(APIStatusError, TektiiError)
+    assert issubclass(BadRequestError, APIStatusError)
+    assert issubclass(NotFoundError, APIStatusError)
+    assert issubclass(OrderRejectedError, APIStatusError)
+    assert issubclass(AuthenticationError, APIStatusError)
+    assert issubclass(RateLimitedError, APIStatusError)
+    assert issubclass(ConflictError, APIStatusError)
+    assert issubclass(ProviderUnavailableError, APIStatusError)
+    assert issubclass(ServerError, APIStatusError)
 
 
 def test_api_error_attributes() -> None:
-    err = TektiiAPIError(400, "INVALID_REQUEST", "Bad input", {"field": "quantity"})
+    err = APIStatusError(400, "INVALID_REQUEST", "Bad input", {"field": "quantity"})
     assert err.status_code == 400
     assert err.code == "INVALID_REQUEST"
     assert err.message == "Bad input"
@@ -81,10 +81,10 @@ def test_raise_for_status_500() -> None:
 
 
 def test_raise_for_status_unknown_maps_to_base() -> None:
-    """Unmapped status codes fall through to base TektiiAPIError."""
-    with pytest.raises(TektiiAPIError) as exc_info:
+    """Unmapped status codes fall through to base APIStatusError."""
+    with pytest.raises(APIStatusError) as exc_info:
         raise_for_status(418, "IM_A_TEAPOT", "teapot")
-    assert type(exc_info.value) is TektiiAPIError
+    assert type(exc_info.value) is APIStatusError
 
 
 def test_catch_all_with_base_class() -> None:

@@ -245,8 +245,8 @@ All events can be pattern-matched with Python's `match`/`case` syntax.
 ```python
 from tektii import (
     TradingGateway,
-    TektiiAPIError,
-    TektiiConnectionError,
+    APIStatusError,
+    APIConnectionError,
     OrderRejectedError,
     NotFoundError,
 )
@@ -259,24 +259,24 @@ except OrderRejectedError as e:
     print(f"Rejected: {e.message} ({e.code})")
 except NotFoundError as e:
     print(f"Not found: {e.message}")
-except TektiiConnectionError as e:
+except APIConnectionError as e:
     # Network / timeout / DNS failure — the original httpx exception
     # is preserved on e.__cause__ for debugging.
     print(f"Transport failure: {e}")
-except TektiiAPIError as e:
+except APIStatusError as e:
     print(f"API error [{e.status_code}]: {e.code} - {e.message}")
 ```
 
 **Exception hierarchy**:
 
 - `TektiiError` — base for all SDK errors
-  - `TektiiConnectionError` — network/timeout/DNS failure. Wraps the
+  - `APIConnectionError` — network/timeout/DNS failure. Wraps the
     underlying `httpx` exception (available on `__cause__`) so user code
     never needs to `import httpx`.
-  - `TektiiProtocolError` — gateway returned something the SDK cannot parse
+  - `APIProtocolError` — gateway returned something the SDK cannot parse
     (unexpected content type, malformed JSON, oversized body). Carries
     `status_code`, `method`, `path`.
-  - `TektiiAPIError` — gateway returned a structured error response (has
+  - `APIStatusError` — gateway returned a structured error response (has
     `status_code`, `code`, `message`, `details`)
     - `BadRequestError` (400)
     - `AuthenticationError` (401)
@@ -287,7 +287,7 @@ except TektiiAPIError as e:
     - `ServerError` (500)
     - `ProviderUnavailableError` (503)
 
-`TektiiAPIError.details` carries the gateway's structured error envelope.
+`APIStatusError.details` carries the gateway's structured error envelope.
 When you ship provider adapters that echo upstream broker payloads, treat
 the field as potentially sensitive — do not blindly forward it into
 third-party log sinks.

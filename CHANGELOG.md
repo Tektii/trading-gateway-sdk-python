@@ -42,11 +42,11 @@ above its highest release avoids distribution-filename collisions.
   auto-ACK support for the Tektii backtest engine.
 - Typed exception hierarchy:
   - `TektiiError` — base.
-  - `TektiiConnectionError` — wraps `httpx` transport errors (timeout,
+  - `APIConnectionError` — wraps `httpx` transport errors (timeout,
     connect refused, pool exhaustion) so users never need to `import httpx`.
-  - `TektiiProtocolError` — non-JSON responses, malformed JSON, and
+  - `APIProtocolError` — non-JSON responses, malformed JSON, and
     oversized bodies (Content-Length above the SDK safety cap).
-  - `TektiiAPIError` + subclasses for 400, 401, 404, 409, 422, 429, 500, 503.
+  - `APIStatusError` + subclasses for 400, 401, 404, 409, 422, 429, 500, 503.
 - Retry policy for idempotent requests (`GET`, `DELETE`, `HEAD`) on
   transport failures and `502/503/504`. `429` honours `Retry-After`. `POST`
   is never retried to avoid duplicate order submission. Configurable via

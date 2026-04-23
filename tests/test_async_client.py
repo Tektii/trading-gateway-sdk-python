@@ -13,6 +13,7 @@ import respx
 from tektii._http import http_to_ws_url
 from tektii.async_client import AsyncTradingGateway
 from tektii.errors import (
+    APIStatusError,
     AuthenticationError,
     BadRequestError,
     ConflictError,
@@ -21,7 +22,6 @@ from tektii.errors import (
     ProviderUnavailableError,
     RateLimitedError,
     ServerError,
-    TektiiAPIError,
     TektiiError,
 )
 from tektii.models import (
@@ -590,7 +590,7 @@ async def test_422_raises_order_rejected(respx_mock: respx.MockRouter) -> None:
 async def test_error_status_codes_map_to_subclasses(
     respx_mock: respx.MockRouter,
     status: int,
-    error_cls: type[TektiiAPIError],
+    error_cls: type[APIStatusError],
     code: str,
 ) -> None:
     """Each HTTP error status should dispatch to its own exception subclass."""

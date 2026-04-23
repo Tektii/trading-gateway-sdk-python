@@ -20,7 +20,7 @@ src/tektii/
 ├── models.py            # Re-exports generated models + hand-written WebSocket events
 ├── _generated/models.py # Pydantic v2 models generated from OpenAPI spec (DO NOT HAND-EDIT)
 ├── stream.py            # AsyncEventStream + SyncEventStream (WebSocket with auto-ACK)
-└── errors.py            # TektiiError → TektiiAPIError → subclasses (NotFound, Rejected, etc.)
+└── errors.py            # TektiiError → APIStatusError → subclasses (NotFound, Rejected, etc.)
 ```
 
 **Key design decisions:**

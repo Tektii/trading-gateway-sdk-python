@@ -7,7 +7,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from tektii.errors import TektiiProtocolError, raise_for_status
+from tektii.errors import APIProtocolError, raise_for_status
 
 # Safety cap on response body size. A well-behaved gateway will never send a
 # response close to this — the cap exists to prevent a misbehaving or hostile
@@ -72,7 +72,7 @@ def _check_response_size(response: httpx.Response, method: str, path: str) -> No
         except ValueError:
             length = 0
         if length > MAX_RESPONSE_BYTES:
-            raise TektiiProtocolError(
+            raise APIProtocolError(
                 response.status_code,
                 method,
                 path,
@@ -80,7 +80,7 @@ def _check_response_size(response: httpx.Response, method: str, path: str) -> No
             )
     # Defence-in-depth: check the actually-received body too.
     if len(response.content) > MAX_RESPONSE_BYTES:
-        raise TektiiProtocolError(
+        raise APIProtocolError(
             response.status_code,
             method,
             path,
@@ -89,7 +89,7 @@ def _check_response_size(response: httpx.Response, method: str, path: str) -> No
 
 
 def handle_response(response: httpx.Response) -> Any:
-    """Parse a gateway response, raising TektiiAPIError on error status codes."""
+    """Parse a gateway response, raising APIStatusError on error status codes."""
     method = response.request.method
     safe_url = _safe_url(response.request)
     # Path-only variant for protocol errors that shouldn't leak hostnames.
@@ -101,7 +101,7 @@ def handle_response(response: httpx.Response) -> Any:
 
     if response.is_success:
         if not _is_json_content_type(content_type):
-            raise TektiiProtocolError(
+            raise APIProtocolError(
                 response.status_code,
                 method,
                 path,
@@ -111,7 +111,7 @@ def handle_response(response: httpx.Response) -> Any:
         try:
             return response.json()
         except ValueError as err:
-            raise TektiiProtocolError(
+            raise APIProtocolError(
                 response.status_code,
                 method,
                 path,

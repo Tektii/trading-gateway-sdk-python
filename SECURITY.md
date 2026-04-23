@@ -62,9 +62,9 @@ The Trading Gateway itself (the Rust daemon this SDK wraps) has its
 own security policy at
 <https://github.com/Tektii/trading-gateway/blob/main/SECURITY.md>.
 
-## Handling `TektiiAPIError.details`
+## Handling `APIStatusError.details`
 
-`TektiiAPIError.details` exposes the gateway's structured error envelope.
+`APIStatusError.details` exposes the gateway's structured error envelope.
 Today the Trading Gateway returns opaque, well-defined codes (e.g.
 `{"reject_reason": "INSUFFICIENT_MARGIN"}`). When third-party provider
 adapters ship (Alpaca, IBKR, Saxo, etc.) they may echo broker-provided
