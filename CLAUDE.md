@@ -43,7 +43,12 @@ uv run mypy src/                 # Type check (note: not --strict, generated cod
 
 ## Model Generation
 
-REST API models are generated from `../tektii-gateway/openapi.json` using `datamodel-code-generator`. Config is in `pyproject.toml` under `[tool.datamodel-codegen]`.
+REST API models are generated from the Trading Gateway's OpenAPI spec using `datamodel-code-generator`. Config is in `pyproject.toml` under `[tool.datamodel-codegen]`.
+
+`./scripts/generate.sh` fetches the spec from the public [trading-gateway](https://github.com/Tektii/trading-gateway) repo (`main` branch by default). No vendored `openapi.json` lives in this repo — overrides:
+
+- `GATEWAY_REF=<branch|tag|sha>` — pin the fetch to a specific ref.
+- `OPENAPI_SPEC=<path-or-url>` — use a local file (e.g. `../tektii-gateway/openapi.json`) or arbitrary URL.
 
 **Generated file**: `src/tektii/_generated/models.py` — DO NOT HAND-EDIT. Regenerate with `./scripts/generate.sh`.
 
@@ -91,7 +96,7 @@ All streaming tests use `reconnect=False` to avoid hanging on server close.
 
 | Repo | Relationship |
 |------|-------------|
-| `tektii-gateway/` | The API this SDK wraps. `openapi.json` is the source of truth for models. |
+| `tektii-gateway/` | The API this SDK wraps. Its `openapi.json` (fetched from GitHub at generate time) is the source of truth for models. |
 | `tektii-be/` | The backtest engine implements the same protocol as the gateway. Auto-ACK is for this. |
 | `tektii-ui/` | No direct relationship. |
 | `tektii-infra/` | Python conventions (ruff, mypy config) were initially drawn from here. |

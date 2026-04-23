@@ -26,6 +26,6 @@ see SECURITY.md for the private reporting process.
 - [ ] `CHANGELOG.md` updated under `## [Unreleased]` if the change is user-visible.
 - [ ] New public API additions are exported from `src/tektii/__init__.py`.
 - [ ] Tests cover any new behaviour (regression tests for bug fixes).
-- [ ] If you regenerated models, both `openapi.json` and the generated
-      file are committed together.
+- [ ] If you regenerated models, the regenerated
+      `src/tektii/_generated/models.py` is committed.
 - [ ] No credentials / secrets in code, tests, or example output.

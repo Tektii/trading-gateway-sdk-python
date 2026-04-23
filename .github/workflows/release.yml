@@ -77,7 +77,7 @@ jobs:
       - name: Type check (mypy)
         run: uv run mypy src/
 
-      - name: Check generated models match openapi.json
+      - name: Check generated models match gateway OpenAPI spec
         run: ./scripts/generate.sh --check
 
       - name: Test (pytest)

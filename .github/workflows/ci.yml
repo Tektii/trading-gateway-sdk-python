@@ -69,7 +69,7 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      - name: Check generated models match openapi.json
+      - name: Check generated models match gateway OpenAPI spec
         run: ./scripts/generate.sh --check
 
   build:

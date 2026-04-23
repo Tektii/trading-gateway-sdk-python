@@ -32,16 +32,26 @@ CI runs the same checks on Python 3.11, 3.12, and 3.13.
 ## Regenerating models from the OpenAPI spec
 
 REST models live in `src/tektii/_generated/models.py` and are
-generated from `openapi.json` at the repo root. **Do not hand-edit them.**
+generated from the Trading Gateway's OpenAPI spec. **Do not hand-edit them.**
+
+`./scripts/generate.sh` fetches the spec directly from the public
+[trading-gateway](https://github.com/Tektii/trading-gateway) repo (`main`
+branch by default). Nothing is vendored in this repo.
 
 To pick up gateway changes:
 
-1. Copy the latest `openapi.json` from the Tektii Trading Gateway repo.
-2. Run `./scripts/generate.sh` to regenerate the models.
-3. Run `./scripts/generate.sh --check` to verify no drift remains.
-4. Commit both `openapi.json` and the regenerated models together.
+1. Run `./scripts/generate.sh` to regenerate the models.
+2. Run `./scripts/generate.sh --check` to verify no drift remains.
+3. Commit the regenerated `src/tektii/_generated/models.py`.
 
-CI runs `./scripts/generate.sh --check` on every PR to catch drift.
+Overrides:
+
+- `GATEWAY_REF=<branch|tag|sha> ./scripts/generate.sh` — pin to a specific ref.
+- `OPENAPI_SPEC=<path-or-url> ./scripts/generate.sh` — use a local file or
+  alternative URL (useful when developing against `../tektii-gateway/openapi.json`).
+
+CI runs `./scripts/generate.sh --check` on every PR against `main` of the
+gateway to catch drift.
 
 ## Code style
 
@@ -71,8 +81,8 @@ CI runs `./scripts/generate.sh --check` on every PR to catch drift.
 - [ ] New behaviour has tests.
 - [ ] `CHANGELOG.md` has an entry under `## [Unreleased]` describing the
       change (user-facing wording, not internal detail).
-- [ ] If you regenerated models, both `openapi.json` and the generated
-      file are committed together.
+- [ ] If you regenerated models, the regenerated
+      `src/tektii/_generated/models.py` is committed.
 - [ ] Public API additions are exported from `src/tektii/__init__.py`
       and added to `__all__`.
 

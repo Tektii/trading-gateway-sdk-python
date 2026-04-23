@@ -99,7 +99,9 @@ exclude = [
 ]
 
 [tool.datamodel-codegen]
-input = "openapi.json"
+# ``input`` is passed explicitly by ``scripts/generate.sh`` — the script fetches
+# the OpenAPI spec from the public trading-gateway repo (or a path via
+# $OPENAPI_SPEC) and hands the resolved location to datamodel-codegen.
 output = "src/tektii/_generated/models.py"
 output-model-type = "pydantic_v2.BaseModel"
 target-python-version = "3.11"
