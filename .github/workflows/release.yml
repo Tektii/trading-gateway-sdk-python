@@ -1,44 +1,131 @@
 name: release
 
+# Publishes tektii to PyPI on tagged releases.
+#
+# Industry best practices applied here:
+#   * Trigger only on annotated "vX.Y.Z" tags pushed to the repo.
+#   * Trusted Publishing (OIDC) — no long-lived PyPI API token stored.
+#   * PEP 740 build provenance attestations via gh-action-pypi-publish.
+#   * Least privilege — only the publish job sets `id-token: write`.
+#   * All third-party actions pinned to immutable commit SHAs.
+#   * Full quality gate (lint, format, type-check, tests on every supported
+#     Python) runs before any artefact is built.
+#   * Tag ↔ package version are reconciled so a mistyped tag cannot publish
+#     the wrong version.
+#   * Build happens in its own job; the wheel + sdist produced there are the
+#     exact bytes that get uploaded to PyPI (no rebuild in the publish step).
+#   * sdist is inspected for dev artefacts and the wheel is inspected for the
+#     PEP 561 `py.typed` marker before leaving the build job.
+#   * `workflow_dispatch` supports a dry-run path that publishes to TestPyPI
+#     so release plumbing can be exercised without cutting a real tag.
+
 on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Publish target"
+        required: true
+        default: "testpypi"
+        type: choice
+        options:
+          - testpypi
+          - pypi
 
-# Least-privilege default. The publish job opts in to id-token:write below.
+# Least-privilege default. Individual jobs opt in to more as needed.
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  publish:
-    name: publish to PyPI
+  # ---------------------------------------------------------------------------
+  # 1. Quality gate — lint, format, type-check, and full test matrix.
+  #    Mirrors ci.yml so a tag push cannot skip the checks that main enforces.
+  # ---------------------------------------------------------------------------
+  quality:
+    name: quality (${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/tektii-gateway
-    permissions:
-      contents: read
-      # Required for PyPI Trusted Publishing (OIDC) — no long-lived token needed.
-      id-token: write
-      # Required for PEP 740 attestations (gh-action-pypi-publish attestations: true).
-      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Install uv
         uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
 
       - name: Sync dependencies
         run: uv sync --frozen
 
-      - name: Run tests before release
-        run: uv run pytest -q
+      - name: Lint (ruff)
+        run: uv run ruff check src/ tests/
+
+      - name: Format check (ruff)
+        run: uv run ruff format --check src/ tests/
+
+      - name: Type check (mypy)
+        run: uv run mypy src/
+
+      - name: Check generated models match openapi.json
+        run: ./scripts/generate.sh --check
+
+      - name: Test (pytest)
+        run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=85
+
+  # ---------------------------------------------------------------------------
+  # 2. Build — produce the wheel + sdist once, verify them, and upload as an
+  #    artefact. The publish job consumes this artefact verbatim.
+  # ---------------------------------------------------------------------------
+  build:
+    name: build distribution
+    runs-on: ubuntu-latest
+    needs: [quality]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # Guard against a tag that does not match src/tektii/_version.py.
+      # Skipped for workflow_dispatch runs because those are not tag-driven.
+      - name: Verify tag matches package version
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version=$(grep -E '^__version__' src/tektii/_version.py | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "tag=${tag_version} pkg=${pkg_version}"
+          if [ "${tag_version}" != "${pkg_version}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package version ${pkg_version}"
+            exit 1
+          fi
 
       - name: Build wheel + sdist
         run: uv build
 
       - name: Verify wheel metadata
         run: uv run --with twine twine check dist/*
+
+      - name: Verify py.typed is packaged
+        run: |
+          set -euo pipefail
+          unzip -l dist/*.whl | grep -q 'tektii/py\.typed$'
 
       - name: Verify sdist has no dev artefacts
         run: |
@@ -48,7 +135,70 @@ jobs:
             exit 1
           fi
 
+      - name: Upload dist
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 3a. Publish to PyPI — real release on tag push, or manual dispatch with
+  #     target=pypi. Protected by the `pypi` GitHub environment; only this job
+  #     is granted `id-token: write` for Trusted Publishing.
+  # ---------------------------------------------------------------------------
+  publish-pypi:
+    name: publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tektii
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download dist
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
         with:
+          attestations: true
+
+  # ---------------------------------------------------------------------------
+  # 3b. Publish to TestPyPI — dry-run path. Lets us exercise the full pipeline
+  #     (including OIDC) without cutting a real release tag.
+  # ---------------------------------------------------------------------------
+  publish-testpypi:
+    name: publish to TestPyPI
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/tektii
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download dist
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
           attestations: true
