@@ -74,7 +74,6 @@ class TradingGateway:
             then ``http://localhost:8080``.
         api_key: Bearer API key. Falls back to ``$TRADING_GATEWAY_API_KEY``.
         timeout: HTTP timeout as float or ``httpx.Timeout``.
-        auto_ack: Automatically ACK WebSocket events (for backtesting).
         headers: Extra headers to merge with SDK defaults.
         max_retries: Retry idempotent requests on transient failures.
         allow_insecure: Explicit opt-in to sending API key over plain HTTP.
@@ -85,7 +84,6 @@ class TradingGateway:
         base_url: str | None = None,
         api_key: str | None = None,
         timeout: float | httpx.Timeout = 30.0,
-        auto_ack: bool = False,
         *,
         headers: dict[str, str] | None = None,
         max_retries: int = 2,
@@ -97,7 +95,6 @@ class TradingGateway:
             base_url or os.environ.get(ENV_BASE_URL) or "http://localhost:8080"
         ).rstrip("/")
         self._api_key = api_key if api_key is not None else os.environ.get(ENV_API_KEY)
-        self._auto_ack = auto_ack
         _check_credentials_over_plaintext(
             self._base_url, self._api_key, allow_insecure=allow_insecure
         )
@@ -110,7 +107,6 @@ class TradingGateway:
             "base_url": self._base_url,
             "api_key": self._api_key,
             "timeout": timeout,
-            "auto_ack": auto_ack,
             "headers": headers,
             "max_retries": max_retries,
             "allow_insecure": True,  # already checked above
@@ -123,11 +119,7 @@ class TradingGateway:
 
     def __repr__(self) -> str:
         redacted = "None" if self._api_key is None else "'***'"
-        return (
-            f"{type(self).__name__}("
-            f"base_url={self._base_url!r}, api_key={redacted}, "
-            f"auto_ack={self._auto_ack})"
-        )
+        return f"{type(self).__name__}(base_url={self._base_url!r}, api_key={redacted})"
 
     # -----------------------------------------------------------------------
     # Lifecycle
@@ -481,5 +473,4 @@ class TradingGateway:
         return SyncEventStream(
             ws_url=ws_url,
             api_key=self._api_key,
-            auto_ack=self._auto_ack,
         )

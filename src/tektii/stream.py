@@ -1,4 +1,11 @@
-"""WebSocket event streaming with auto-ACK and reconnection."""
+"""WebSocket event streaming with automatic reconnection.
+
+Events carrying an ``event_id`` (sent by the Tektii backtest engine) are
+acknowledged automatically after the user's iterator body runs — the engine
+waits for the ACK before advancing simulation time. Live and mock gateways
+omit ``event_id`` and the ACK path is skipped, so the same strategy code
+runs unchanged against any backend.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +29,6 @@ import websockets.asyncio.client
 import websockets.exceptions
 from pydantic import TypeAdapter
 
-from tektii.errors import TektiiError
 from tektii.models import GatewayEvent, PingEvent
 
 logger = logging.getLogger("tektii.stream")
@@ -85,35 +91,39 @@ def _is_retryable_handshake_error(err: BaseException) -> bool:
 
 
 class AsyncEventStream:
-    """Async WebSocket stream with auto-reconnect and optional auto-ACK.
+    """Async WebSocket stream with auto-reconnect.
 
     Usage::
 
-        stream = AsyncEventStream(ws_url="ws://localhost:8080/v1/ws", auto_ack=True)
+        stream = AsyncEventStream(ws_url="ws://localhost:8080/v1/ws")
         async with stream:
             async for event in stream:
                 match event:
                     case CandleEvent(bar=bar):
                         ...
 
-    When ``auto_ack=True``, event acknowledgements are sent *after* the user
-    processes each event (i.e., after the ``async for`` body runs). This is
-    critical for the Tektii backtest engine, which uses ACKs to advance
-    simulation time.
+    Events carrying an ``event_id`` are acknowledged *after* the user's
+    iterator body runs. The Tektii backtest engine uses this signal to
+    advance simulation time; live and mock gateways omit ``event_id`` and
+    the ACK path is a no-op. Same strategy code, any backend.
     """
 
     def __init__(
         self,
         ws_url: str,
         api_key: str | None = None,
-        auto_ack: bool = False,
         reconnect: bool = True,
         max_reconnect_delay: float = 30.0,
         max_reconnect_attempts: int | None = None,
+        *,
+        _ack_on_yield: bool = True,
     ) -> None:
         self._ws_url = ws_url
         self._api_key = api_key
-        self._auto_ack = auto_ack
+        # Internal: SyncEventStream disables inline ACK so the sync iterator
+        # can own ACK timing across the thread boundary (the async-side ACK
+        # would fire before the sync user's for-body runs).
+        self._ack_on_yield = _ack_on_yield
         self._reconnect = reconnect
         self._max_reconnect_delay = max_reconnect_delay
         self._max_reconnect_attempts = max_reconnect_attempts
@@ -148,8 +158,8 @@ class AsyncEventStream:
             await self._ws.close()
             self._ws = None
 
-    async def ack(self, event_ids: list[str]) -> None:
-        """Manually acknowledge events (for auto_ack=False mode)."""
+    async def _ack(self, event_ids: list[str]) -> None:
+        """Send an event_ack frame (internal)."""
         if not event_ids or self._ws is None:
             return
         msg = json.dumps(
@@ -169,7 +179,7 @@ class AsyncEventStream:
         letting a dropped trailing ACK bubble into the reconnect loop.
         """
         try:
-            await self.ack([event_id])
+            await self._ack([event_id])
         except Exception as err:  # noqa: BLE001 — best-effort path
             logger.warning(
                 "Failed to flush trailing ACK %s on disconnect: %s",
@@ -223,7 +233,7 @@ class AsyncEventStream:
                     try:
                         yield event
                     finally:
-                        if self._auto_ack and event.event_id is not None:
+                        if self._ack_on_yield and event.event_id is not None:
                             await self._try_flush_ack(event.event_id)
 
                 # Clean close — stop unless reconnect is enabled
@@ -280,7 +290,7 @@ class SyncEventStream:
 
     Usage::
 
-        stream = SyncEventStream(ws_url="ws://localhost:8080/v1/ws", auto_ack=True)
+        stream = SyncEventStream(ws_url="ws://localhost:8080/v1/ws")
         with stream:
             for event in stream:
                 match event:
@@ -292,7 +302,6 @@ class SyncEventStream:
         self,
         ws_url: str,
         api_key: str | None = None,
-        auto_ack: bool = False,
         reconnect: bool = True,
         max_reconnect_delay: float = 30.0,
         max_reconnect_attempts: int | None = None,
@@ -300,7 +309,6 @@ class SyncEventStream:
     ) -> None:
         self._ws_url = ws_url
         self._api_key = api_key
-        self._auto_ack = auto_ack
         self._reconnect = reconnect
         self._max_reconnect_delay = max_reconnect_delay
         self._max_reconnect_attempts = max_reconnect_attempts
@@ -340,16 +348,11 @@ class SyncEventStream:
             self._thread = None
         self._loop = None
 
-    def ack(self, event_ids: list[str]) -> None:
-        """Manually acknowledge events (thread-safe).
-
-        Raises ``TektiiError`` if called outside of a ``with stream:`` block —
-        a silent no-op here would deadlock the backtest engine, which won't
-        advance time until it sees the ACK.
-        """
+    def _ack(self, event_ids: list[str]) -> None:
+        """Thread-safe wrapper around AsyncEventStream._ack (internal)."""
         if self._loop is None or self._async_stream is None:
-            raise TektiiError("SyncEventStream.ack() called outside of a 'with stream:' block")
-        future = asyncio.run_coroutine_threadsafe(self._async_stream.ack(event_ids), self._loop)
+            return
+        future = asyncio.run_coroutine_threadsafe(self._async_stream._ack(event_ids), self._loop)
         future.result(timeout=self._close_timeout)
 
     def _run_loop(self) -> None:
@@ -363,18 +366,18 @@ class SyncEventStream:
     async def _consume(self) -> None:
         """Consume async events and push to the sync queue.
 
-        The underlying ``AsyncEventStream`` runs with ``auto_ack=False`` so we
-        can preserve the "ACK fires after user processes the event" guarantee
-        across the thread boundary. The sync iterator handles ACKing from the
-        main thread after each ``for`` body completes.
+        The inner ``AsyncEventStream`` has inline ACK disabled so the sync
+        iterator can preserve the "ACK fires after user processes the event"
+        guarantee across the thread boundary. The sync iterator ACKs from
+        the main thread after each ``for`` body completes.
         """
         self._async_stream = AsyncEventStream(
             ws_url=self._ws_url,
             api_key=self._api_key,
-            auto_ack=False,  # sync iter owns ACK timing
             reconnect=self._reconnect,
             max_reconnect_delay=self._max_reconnect_delay,
             max_reconnect_attempts=self._max_reconnect_attempts,
+            _ack_on_yield=False,  # sync iter owns ACK timing
         )
         try:
             async with self._async_stream:
@@ -392,7 +395,7 @@ class SyncEventStream:
                 # the server will not send the next event until it sees the ACK.
                 if pending_ack_id is not None:
                     try:
-                        self.ack([pending_ack_id])
+                        self._ack([pending_ack_id])
                     except Exception as err:  # noqa: BLE001 — best-effort ACK
                         logger.warning(
                             "Failed to flush pending ACK %s: %s",
@@ -405,14 +408,14 @@ class SyncEventStream:
                     if item.error:
                         raise item.error
                     return
-                if self._auto_ack and item.event_id is not None:
+                if item.event_id is not None:
                     pending_ack_id = item.event_id
                 yield item
         finally:
             # Flush pending ACK on break, exception, or clean exit.
             if pending_ack_id is not None:
                 try:
-                    self.ack([pending_ack_id])
+                    self._ack([pending_ack_id])
                 except Exception as err:  # noqa: BLE001 — best-effort trailing ACK
                     logger.warning(
                         "Failed to flush trailing ACK %s on exit: %s",

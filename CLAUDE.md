@@ -2,7 +2,7 @@
 
 ## What This Repo Is
 
-Python SDK for the [Trading Gateway](https://github.com/Tektii/trading-gateway). Wraps the gateway's REST + WebSocket API with typed Pydantic models, sync/async clients, and auto-ACK for backtesting.
+Python SDK for the [Trading Gateway](https://github.com/Tektii/trading-gateway). Wraps the gateway's REST + WebSocket API with typed Pydantic models and sync/async clients. Internal auto-ACK lets the same strategy code run against live brokers and the Tektii backtest engine without changes.
 
 This is an **open-source client library** — it does not contain any backend logic. The gateway itself lives at `../tektii-gateway/`.
 
@@ -33,7 +33,7 @@ src/tektii/
 
 ```bash
 uv sync                          # Install all deps (runtime + dev)
-uv run pytest                    # Run tests (153 tests)
+uv run pytest                    # Run tests (156 tests)
 uv run pytest -v                 # Verbose test output
 uv run ruff check src/ tests/    # Lint
 uv run mypy src/                 # Type check (note: not --strict, generated code has issues)
@@ -51,13 +51,19 @@ REST API models are generated from `../tektii-gateway/openapi.json` using `datam
 
 ## WebSocket / Auto-ACK
 
-The auto-ACK mechanism in `stream.py` is the most nuanced piece:
+Auto-ACK is always on and **hidden from users** — no public kwarg, no manual
+`ack()` method. The value prop is "same code runs live and backtest"; users
+shouldn't have to know the mechanism exists. If a PR re-introduces an
+`auto_ack=` parameter or a public `ack()` method, reject it.
+
+The mechanism in `stream.py`:
 
 1. Gateway sends events with optional `event_id` (present only from backtest engine)
-2. With `auto_ack=True`, the SDK sends `event_ack` **after** the user's `async for` body runs
+2. SDK sends `event_ack` **after** the user's `async for` body runs when `event_id` is present
 3. This works because `yield` in an async generator suspends until the consumer calls `__anext__` again
-4. Against live/mock gateway, `event_id` is absent and no ACK is sent — same code, zero changes
-5. Ping/pong heartbeats are handled internally and never yielded to the user
+4. Against live/mock gateway, `event_id` is absent and no ACK is sent
+5. `SyncEventStream` flips the inner `AsyncEventStream`'s private `_ack_on_yield=False` and re-ACKs from the sync iterator thread — preserves the "ACK after user processes" guarantee across the thread boundary
+6. Ping/pong heartbeats are handled internally and never yielded to the user
 
 ## Dependencies
 

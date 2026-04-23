@@ -107,7 +107,6 @@ class AsyncTradingGateway:
             ``$TRADING_GATEWAY_API_KEY``.
         timeout: HTTP request timeout as a float (applied to all phases) or
             an ``httpx.Timeout`` for granular connect/read/write/pool control.
-        auto_ack: Automatically ACK WebSocket events (for backtesting).
         headers: Extra headers to merge with SDK defaults (User-Agent, auth).
             User-supplied headers win on collision.
         max_retries: Retry idempotent requests (GET/DELETE) on transient
@@ -121,7 +120,6 @@ class AsyncTradingGateway:
         base_url: str | None = None,
         api_key: str | None = None,
         timeout: float | httpx.Timeout = 30.0,
-        auto_ack: bool = False,
         *,
         headers: dict[str, str] | None = None,
         max_retries: int = 2,
@@ -134,7 +132,6 @@ class AsyncTradingGateway:
 
         self.base_url = resolved_url
         self._api_key = resolved_key
-        self.auto_ack = auto_ack
         self._max_retries = max(0, max_retries)
 
         _check_credentials_over_plaintext(
@@ -156,11 +153,7 @@ class AsyncTradingGateway:
 
     def __repr__(self) -> str:
         redacted = "None" if self._api_key is None else "'***'"
-        return (
-            f"{type(self).__name__}("
-            f"base_url={self.base_url!r}, api_key={redacted}, "
-            f"auto_ack={self.auto_ack})"
-        )
+        return f"{type(self).__name__}(base_url={self.base_url!r}, api_key={redacted})"
 
     async def __aenter__(self) -> AsyncTradingGateway:
         return self
@@ -567,7 +560,6 @@ class AsyncTradingGateway:
         return AsyncEventStream(
             ws_url=ws_url,
             api_key=self._api_key,
-            auto_ack=self.auto_ack,
         )
 
 

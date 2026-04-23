@@ -162,7 +162,7 @@ async def test_ping_handled_internally() -> None:
 
 
 async def test_auto_ack_sends_after_processing() -> None:
-    """With auto_ack=True, ACK should be sent after user processes the event."""
+    """Events carrying an event_id should be ACKed after the user processes them."""
     received_acks: list[dict] = []
 
     async def handler(ws):
@@ -222,7 +222,7 @@ async def test_auto_ack_sends_after_processing() -> None:
     server, url = await _run_ws_server(handler)
     events = []
     try:
-        stream = AsyncEventStream(ws_url=url, auto_ack=True, reconnect=False)
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
         async with stream:
             async for event in stream:
                 events.append(event)
@@ -305,7 +305,7 @@ async def test_auto_ack_unblocks_backtest_engine() -> None:
     server, url = await _run_ws_server(handler)
     events = []
     try:
-        stream = AsyncEventStream(ws_url=url, auto_ack=True, reconnect=False)
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
         async with stream:
             async for event in stream:
                 events.append(event)
@@ -353,7 +353,7 @@ async def test_no_ack_without_event_id() -> None:
 
     server, url = await _run_ws_server(handler)
     try:
-        stream = AsyncEventStream(ws_url=url, auto_ack=True, reconnect=False)
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
         async with stream:
             async for _event in stream:
                 await stream.close()
@@ -365,59 +365,6 @@ async def test_no_ack_without_event_id() -> None:
     # No ACK should have been sent (no event_id)
     acks = [m for m in received_messages if m.get("type") == "event_ack"]
     assert len(acks) == 0
-
-
-# ---------------------------------------------------------------------------
-# Manual ACK
-# ---------------------------------------------------------------------------
-
-
-async def test_manual_ack() -> None:
-    """Users can manually ACK events when auto_ack=False."""
-    received_acks: list[dict] = []
-
-    async def handler(ws):
-        await ws.send(
-            json.dumps(
-                {
-                    "type": "candle",
-                    "timestamp": "2025-01-15T10:30:00Z",
-                    "event_id": "evt_manual",
-                    "bar": {
-                        "symbol": "AAPL",
-                        "provider": "tektii",
-                        "timeframe": "1m",
-                        "timestamp": "2025-01-15T10:30:00Z",
-                        "open": "150.00",
-                        "high": "150.50",
-                        "low": "149.90",
-                        "close": "150.25",
-                        "volume": "1000",
-                    },
-                }
-            )
-        )
-        try:
-            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
-            received_acks.append(json.loads(raw))
-        except (TimeoutError, websockets.exceptions.ConnectionClosed):
-            pass
-
-    server, url = await _run_ws_server(handler)
-    try:
-        stream = AsyncEventStream(ws_url=url, auto_ack=False, reconnect=False)
-        async with stream:
-            async for event in stream:
-                assert event.event_id == "evt_manual"
-                await stream.ack(["evt_manual"])
-                await stream.close()
-                break
-    finally:
-        server.close()
-        await server.wait_closed()
-
-    assert len(received_acks) == 1
-    assert received_acks[0]["events_processed"] == ["evt_manual"]
 
 
 # ---------------------------------------------------------------------------
@@ -450,8 +397,8 @@ def _sample_candle(event_id: str, close: str = "150.25") -> dict:
 
 
 async def test_sync_stream_auto_ack_after_processing() -> None:
-    """Regression: SyncEventStream with auto_ack=True must ACK *after* the
-    user's for-body runs, not before.
+    """Regression: SyncEventStream must ACK *after* the user's for-body runs,
+    not before.
 
     Previously the background consumer auto-ACKed on the async side, firing
     the ACK before the sync user had processed the event — breaking the
@@ -480,7 +427,7 @@ async def test_sync_stream_auto_ack_after_processing() -> None:
     server, url = await _run_ws_server(handler)
 
     def run_sync_iter() -> list[CandleEvent]:
-        stream = SyncEventStream(ws_url=url, auto_ack=True, reconnect=False)
+        stream = SyncEventStream(ws_url=url, reconnect=False)
         collected: list[CandleEvent] = []
         with stream:
             for event in stream:
@@ -501,7 +448,7 @@ async def test_sync_stream_auto_ack_after_processing() -> None:
 
 
 async def test_sync_stream_no_ack_without_event_id() -> None:
-    """SyncEventStream with auto_ack=True must not ACK events without event_id."""
+    """SyncEventStream must not ACK events without event_id."""
     received_messages: list[dict] = []
 
     async def handler(ws):
@@ -533,7 +480,7 @@ async def test_sync_stream_no_ack_without_event_id() -> None:
     server, url = await _run_ws_server(handler)
 
     def run_sync_iter() -> int:
-        stream = SyncEventStream(ws_url=url, auto_ack=True, reconnect=False)
+        stream = SyncEventStream(ws_url=url, reconnect=False)
         count = 0
         with stream:
             for _event in stream:
@@ -574,7 +521,7 @@ async def test_trailing_ack_flushed_on_clean_close() -> None:
     server, url = await _run_ws_server(handler)
     events = []
     try:
-        stream = AsyncEventStream(ws_url=url, auto_ack=True, reconnect=False)
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
         async with stream:
             async for event in stream:
                 events.append(event)
@@ -603,7 +550,7 @@ async def test_trailing_ack_flush_survives_dead_socket() -> None:
     server, url = await _run_ws_server(handler)
     events = []
     try:
-        stream = AsyncEventStream(ws_url=url, auto_ack=True, reconnect=False)
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
         async with stream:
             async for event in stream:
                 events.append(event)
@@ -614,38 +561,6 @@ async def test_trailing_ack_flush_survives_dead_socket() -> None:
     # The single event should have been delivered; no exception should have
     # escaped the iterator even though the trailing ACK could not be sent.
     assert len(events) == 1
-
-
-async def test_sync_stream_manual_ack() -> None:
-    """Users can manually ACK via SyncEventStream.ack() when auto_ack=False."""
-    received_acks: list[dict] = []
-
-    async def handler(ws):
-        await ws.send(json.dumps(_sample_candle("evt_manual_sync")))
-        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
-            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
-            received_acks.append(json.loads(raw))
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(ws.wait_closed(), timeout=1.0)
-
-    server, url = await _run_ws_server(handler)
-
-    def run_sync_iter() -> None:
-        stream = SyncEventStream(ws_url=url, auto_ack=False, reconnect=False)
-        with stream:
-            for event in stream:
-                assert event.event_id == "evt_manual_sync"
-                stream.ack(["evt_manual_sync"])
-                break
-
-    try:
-        await asyncio.to_thread(run_sync_iter)
-    finally:
-        server.close()
-        await server.wait_closed()
-
-    assert len(received_acks) == 1
-    assert received_acks[0]["events_processed"] == ["evt_manual_sync"]
 
 
 # ---------------------------------------------------------------------------

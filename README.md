@@ -136,30 +136,10 @@ The stream auto-reconnects with exponential backoff + jitter (capped at
 handles ping/pong heartbeats internally. Malformed frames and unknown
 event types are logged and skipped — they never kill the iterator.
 
-## Backtesting with Auto-ACK
-
-When running against the Tektii backtesting engine, set `auto_ack=True` to automatically acknowledge events. This controls simulation time progression — the engine waits for your strategy to process each event before advancing.
-
-```python
-from tektii import AsyncTradingGateway, CandleEvent
-from decimal import Decimal
-import asyncio
-
-async def main():
-    async with AsyncTradingGateway(
-        base_url="http://localhost:8080",  # Engine URL
-        auto_ack=True,                      # Auto-ACK for backtest
-    ) as gw:
-        async with gw.stream() as events:
-            async for event in events:
-                match event:
-                    case CandleEvent(bar=bar) if bar.close < Decimal("150"):
-                        await gw.submit_order(bar.symbol, "buy", "1")
-
-asyncio.run(main())
-```
-
-The same strategy code works against the live gateway (where auto-ACK is a harmless no-op) and the backtest engine — zero code changes.
+The same strategy code runs unchanged against a live broker and the Tektii
+backtest engine. Under the hood the SDK coordinates simulation time
+progression with the engine for you — no flags to set, no code paths to
+toggle.
 
 ## Bracket Orders (Stop-Loss / Take-Profit)
 
@@ -188,7 +168,6 @@ gw = TradingGateway(
     base_url="http://localhost:8080",  # or $TRADING_GATEWAY_URL
     api_key=None,                       # or $TRADING_GATEWAY_API_KEY
     timeout=30.0,                       # float or httpx.Timeout
-    auto_ack=False,                     # auto-ACK for backtesting
     headers={"X-Tenant": "acme"},       # extra headers (optional)
     max_retries=2,                      # retry idempotent requests on transient failure
     allow_insecure=False,               # opt-in to plain http:// with API key
@@ -256,7 +235,6 @@ use `AsyncTradingGateway` there instead.
 | Method | Description |
 |--------|-------------|
 | `stream()` | Build an event stream (async or sync context manager + iterator) |
-| `stream.ack(event_ids)` | Manually ACK events (when `auto_ack=False`) |
 
 **Event types**: `CandleEvent`, `QuoteEvent`, `OrderEvent`, `PositionEvent`, `AccountEvent`, `TradeEvent`, `ConnectionEvent`, `DataStalenessEvent`, `RateLimitEvent`, `ErrorEvent`
 

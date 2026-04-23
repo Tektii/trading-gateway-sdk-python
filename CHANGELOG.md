@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Auto-ACK is now always on and no longer part of the public API. Event
+  acknowledgements fire automatically after the user's iterator body runs
+  for events that carry an `event_id` (Tektii backtest engine). Live and
+  mock gateways omit `event_id` and the ACK path stays a no-op, so the
+  same strategy code runs unchanged against any backend.
+
+### Removed
+
+- `auto_ack=` constructor keyword on `TradingGateway`,
+  `AsyncTradingGateway`, `AsyncEventStream`, and `SyncEventStream`.
+- Public `AsyncEventStream.ack()` / `SyncEventStream.ack()` methods. ACK
+  coordination is fully internal now.
+
 ## [1.5.0] — 2026-04-23
 
 First public release. Published to PyPI as `tektii`. Version starts at 1.5.0
@@ -24,7 +39,7 @@ above its highest release avoids distribution-filename collisions.
   bounded attempts, short-circuit on 401/403 handshake failures),
   ping/pong heartbeats, resource caps on frame size and idle timeout,
   tolerant parsing of malformed JSON and unknown event types, and
-  `auto_ack=True` support for the Tektii backtest engine.
+  auto-ACK support for the Tektii backtest engine.
 - Typed exception hierarchy:
   - `TektiiError` — base.
   - `TektiiConnectionError` — wraps `httpx` transport errors (timeout,

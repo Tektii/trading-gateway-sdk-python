@@ -28,7 +28,7 @@ from tektii.errors import (
     TektiiError,
     TektiiProtocolError,
 )
-from tektii.stream import AsyncEventStream, SyncEventStream
+from tektii.stream import AsyncEventStream
 
 from .conftest import SAMPLE_ACCOUNT
 
@@ -310,17 +310,6 @@ async def test_sync_client_inside_running_loop_raises() -> None:
     gw = TradingGateway()
     with pytest.raises(TektiiError, match="running event loop"):
         gw.get_account()
-
-
-# ---------------------------------------------------------------------------
-# SyncEventStream.ack outside of `with` block raises
-# ---------------------------------------------------------------------------
-
-
-def test_sync_stream_ack_outside_with_raises() -> None:
-    stream = SyncEventStream(ws_url="ws://localhost:8080/v1/ws")
-    with pytest.raises(TektiiError, match="outside of a 'with stream:' block"):
-        stream.ack(["evt_1"])
 
 
 # ---------------------------------------------------------------------------
