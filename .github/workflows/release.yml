@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# Least-privilege default. The publish job opts in to id-token:write below.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tektii-gateway
+    permissions:
+      contents: read
+      # Required for PyPI Trusted Publishing (OIDC) — no long-lived token needed.
+      id-token: write
+      # Required for PEP 740 attestations (gh-action-pypi-publish attestations: true).
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run tests before release
+        run: uv run pytest -q
+
+      - name: Build wheel + sdist
+        run: uv build
+
+      - name: Verify wheel metadata
+        run: uv run --with twine twine check dist/*
+
+      - name: Verify sdist has no dev artefacts
+        run: |
+          set -euo pipefail
+          if tar -tzf dist/*.tar.gz | grep -E '(^|/)(\.coverage|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv|\.env($|\.))'; then
+            echo "::error::sdist contains dev artefacts — check pyproject.toml [tool.hatch.build.targets.sdist] exclude list"
+            exit 1
+          fi
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # release/v1
+        with:
+          attestations: true

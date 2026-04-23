@@ -1,0 +1,40 @@
+version: 2
+updates:
+  # Python dependencies declared in pyproject.toml / uv.lock.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      python-runtime:
+        patterns:
+          - "httpx"
+          - "websockets"
+          - "pydantic"
+      python-dev:
+        patterns:
+          - "pytest*"
+          - "respx"
+          - "ruff"
+          - "mypy"
+          - "datamodel-code-generator"
+
+  # GitHub Actions — the supply chain with the largest blast radius.
+  # SHA-pinned references are bumped by PR so reviewers see what's changing.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/London"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
