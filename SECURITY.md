@@ -7,9 +7,9 @@ its beta period. Only the most recent minor release receives security fixes.
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| 1.5.x   | :white_check_mark: |
 
-Once the SDK reaches 1.0.0 this policy will be revised to support at least
+Once the SDK exits beta this policy will be revised to support at least
 the current and previous minor releases.
 
 ## Reporting a vulnerability
