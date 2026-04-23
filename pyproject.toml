@@ -38,7 +38,7 @@ dependencies = [
     # Pinned away from the legacy websockets client. websockets 14 is the
     # first release where the asyncio.client API that we use is the default
     # supported shape; avoiding <14 prevents import-path churn on upgrade.
-    "websockets>=14,<15",
+    "websockets>=14,<17",
     "pydantic>=2.5,<3",
 ]
 
