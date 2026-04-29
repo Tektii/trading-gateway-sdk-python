@@ -1,10 +1,12 @@
 """WebSocket event streaming with automatic reconnection.
 
-Events carrying an ``event_id`` (sent by the Tektii backtest engine) are
-acknowledged automatically after the user's iterator body runs — the engine
-waits for the ACK before advancing simulation time. Live and mock gateways
-omit ``event_id`` and the ACK path is skipped, so the same strategy code
-runs unchanged against any backend.
+The SDK sends an ``event_ack`` frame after the user's iterator body runs for
+*every* yielded event. The Tektii backtest gateway uses auto-correlation —
+any strategy ACK drains every engine event already broadcast — so the
+strategy never has to track engine ``event_id`` values. ``event_id`` is
+forwarded when the gateway includes it (engine path) and omitted otherwise
+(live and mock backends, which do not register an ACK bridge and ignore the
+frame). Same strategy code runs unchanged against any backend.
 """
 
 from __future__ import annotations
@@ -102,10 +104,12 @@ class AsyncEventStream:
                     case CandleEvent(bar=bar):
                         ...
 
-    Events carrying an ``event_id`` are acknowledged *after* the user's
-    iterator body runs. The Tektii backtest engine uses this signal to
-    advance simulation time; live and mock gateways omit ``event_id`` and
-    the ACK path is a no-op. Same strategy code, any backend.
+    Every yielded event is acknowledged *after* the user's iterator body
+    runs. The Tektii backtest gateway uses auto-correlation (any strategy
+    ACK drains every engine event already broadcast), so the strategy never
+    has to track engine ``event_id`` values. ``event_id`` is forwarded when
+    present and omitted otherwise; live and mock backends ignore the frame.
+    Same strategy code, any backend.
     """
 
     def __init__(
@@ -159,8 +163,14 @@ class AsyncEventStream:
             self._ws = None
 
     async def _ack(self, event_ids: list[str]) -> None:
-        """Send an event_ack frame (internal)."""
-        if not event_ids or self._ws is None:
+        """Send an event_ack frame (internal).
+
+        An empty ``event_ids`` list is valid: the Tektii backtest gateway
+        drains every delivered engine event on any strategy ACK
+        (auto-correlation), so the strategy does not need to track engine
+        ids. Live and mock gateways have no ACK bridge and ignore the frame.
+        """
+        if self._ws is None:
             return
         msg = json.dumps(
             {
@@ -172,18 +182,18 @@ class AsyncEventStream:
         )
         await self._ws.send(msg)
 
-    async def _try_flush_ack(self, event_id: str) -> None:
-        """Best-effort ACK flush used on disconnect/close paths.
+    async def _try_flush_ack(self, event_ids: list[str]) -> None:
+        """Best-effort ACK flush used on the per-event yield path.
 
         The websocket may already be dead — we log and swallow rather than
         letting a dropped trailing ACK bubble into the reconnect loop.
         """
         try:
-            await self._ack([event_id])
+            await self._ack(event_ids)
         except Exception as err:  # noqa: BLE001 — best-effort path
             logger.warning(
                 "Failed to flush trailing ACK %s on disconnect: %s",
-                event_id,
+                event_ids,
                 err,
             )
 
@@ -230,11 +240,17 @@ class AsyncEventStream:
                     # normal continuation, ``break``, or an exception in the
                     # user's loop body — so the backtest engine can safely
                     # block on ACK before sending the next event.
+                    #
+                    # The ACK fires regardless of ``event_id`` presence:
+                    # the Tektii backtest gateway strips ``event_id`` from
+                    # the wire format and uses auto-correlation, while
+                    # live/mock backends ignore the frame entirely.
                     try:
                         yield event
                     finally:
-                        if self._ack_on_yield and event.event_id is not None:
-                            await self._try_flush_ack(event.event_id)
+                        if self._ack_on_yield:
+                            ids = [event.event_id] if event.event_id is not None else []
+                            await self._try_flush_ack(ids)
 
                 # Clean close — stop unless reconnect is enabled
                 self._ws = None
@@ -387,39 +403,42 @@ class SyncEventStream:
             self._queue.put(_Sentinel(error=err))
 
     def __iter__(self) -> Iterator[GatewayEvent]:
-        pending_ack_id: str | None = None
+        # ``None`` = no event yielded yet; ``list`` = the user's for-body has
+        # run for an event and we owe an ACK. The list carries the engine's
+        # ``event_id`` if present, or is empty for events without one (the
+        # gateway's auto-correlation drains all delivered events on any ACK).
+        pending_ack: list[str] | None = None
         try:
             while True:
                 # ACK the previous event now that the user's for-body has run.
                 # Must happen *before* we block on the queue: in backtest mode
                 # the server will not send the next event until it sees the ACK.
-                if pending_ack_id is not None:
+                if pending_ack is not None:
                     try:
-                        self._ack([pending_ack_id])
+                        self._ack(pending_ack)
                     except Exception as err:  # noqa: BLE001 — best-effort ACK
                         logger.warning(
                             "Failed to flush pending ACK %s: %s",
-                            pending_ack_id,
+                            pending_ack,
                             err,
                         )
-                    pending_ack_id = None
+                    pending_ack = None
                 item = self._queue.get()
                 if isinstance(item, _Sentinel):
                     if item.error:
                         raise item.error
                     return
-                if item.event_id is not None:
-                    pending_ack_id = item.event_id
+                pending_ack = [item.event_id] if item.event_id is not None else []
                 yield item
         finally:
             # Flush pending ACK on break, exception, or clean exit.
-            if pending_ack_id is not None:
+            if pending_ack is not None:
                 try:
-                    self._ack([pending_ack_id])
+                    self._ack(pending_ack)
                 except Exception as err:  # noqa: BLE001 — best-effort trailing ACK
                     logger.warning(
                         "Failed to flush trailing ACK %s on exit: %s",
-                        pending_ack_id,
+                        pending_ack,
                         err,
                     )
 

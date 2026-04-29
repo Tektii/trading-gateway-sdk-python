@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-04-29
+
+### Fixed
+
+- WebSocket auto-ACK now fires for **every** yielded event, not only those
+  carrying an `event_id`. The Tektii backtest gateway strips `event_id`
+  from its wire-format `WsMessage` and relies on auto-correlation (any
+  strategy ACK drains every engine event already broadcast), so the
+  previous "ACK only when `event_id` is present" rule produced zero ACKs
+  through the gateway sidecar and stalled backtests after the engine's
+  consecutive-ACK-timeout threshold. Frames sent to live and mock backends
+  are still no-ops because those backends do not register an ACK bridge.
+  ([TEK-309](https://linear.app/tektii/issue/TEK-309))
+
 ### Changed
 
 - Auto-ACK is now always on and no longer part of the public API. Event
   acknowledgements fire automatically after the user's iterator body runs
-  for events that carry an `event_id` (Tektii backtest engine). Live and
-  mock gateways omit `event_id` and the ACK path stays a no-op, so the
-  same strategy code runs unchanged against any backend.
+  for every yielded event. Same strategy code runs unchanged against any
+  backend.
 
 ### Removed
 
@@ -86,5 +99,6 @@ above its highest release avoids distribution-filename collisions.
   SHAs.
 - Dependabot for `pip` and `github-actions` ecosystems.
 
-[Unreleased]: https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/Tektii/trading-gateway-sdk-python/releases/tag/v1.5.0
