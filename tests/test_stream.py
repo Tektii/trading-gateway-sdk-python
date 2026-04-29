@@ -319,9 +319,69 @@ async def test_auto_ack_unblocks_backtest_engine() -> None:
     assert order == ["processed_evt_bt_001", "ack_received", "processed_evt_bt_002"]
 
 
-async def test_no_ack_without_event_id() -> None:
-    """Events without event_id (live/mock) should not trigger ACK."""
-    received_messages: list[dict] = []
+async def test_ack_without_event_id_one_per_yielded_event() -> None:
+    """Each yielded event without ``event_id`` must produce its own ACK frame."""
+    received_acks: list[dict] = []
+
+    async def handler(ws):
+        for i in range(3):
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "candle",
+                        "timestamp": f"2025-01-15T10:30:0{i}Z",
+                        "bar": {
+                            "symbol": "AAPL",
+                            "provider": "mock",
+                            "timeframe": "1m",
+                            "timestamp": f"2025-01-15T10:30:0{i}Z",
+                            "open": "150.00",
+                            "high": "150.50",
+                            "low": "149.90",
+                            "close": str(150 + i),
+                            "volume": "1000",
+                        },
+                    }
+                )
+            )
+        try:
+            while len(received_acks) < 3:
+                raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+                msg = json.loads(raw)
+                if msg.get("type") == "event_ack":
+                    received_acks.append(msg)
+        except (TimeoutError, websockets.exceptions.ConnectionClosed):
+            pass
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(events) == 3
+    assert len(received_acks) == 3
+    for ack in received_acks:
+        assert ack["events_processed"] == []
+
+
+async def test_ack_without_event_id_sends_empty_list() -> None:
+    """Events without event_id (gateway sidecar / live / mock) must still
+    trigger an ACK frame with ``events_processed: []``.
+
+    The Tektii backtest gateway strips ``event_id`` from the wire-format
+    ``WsMessage`` and relies on auto-correlation: any strategy ACK drains
+    every engine event already broadcast. Live/mock gateways ignore the
+    frame because they do not register an ACK bridge. Either way, the SDK
+    sends one ACK per yielded event.
+    """
+    received_acks: list[dict] = []
 
     async def handler(ws):
         # Send event WITHOUT event_id
@@ -344,27 +404,32 @@ async def test_no_ack_without_event_id() -> None:
                 }
             )
         )
-        # Try to receive any response
+        # Wait for the ACK, then close server-side so the trailing ACK
+        # path runs on the client (rather than the user breaking out, which
+        # would short-circuit close before the iterator resumes).
         try:
-            raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
-            received_messages.append(json.loads(raw))
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            msg = json.loads(raw)
+            if msg.get("type") == "event_ack":
+                received_acks.append(msg)
         except (TimeoutError, websockets.exceptions.ConnectionClosed):
             pass
+        await ws.close()
 
     server, url = await _run_ws_server(handler)
+    events = []
     try:
         stream = AsyncEventStream(ws_url=url, reconnect=False)
         async with stream:
-            async for _event in stream:
-                await stream.close()
-                break
+            async for event in stream:
+                events.append(event)
     finally:
         server.close()
         await server.wait_closed()
 
-    # No ACK should have been sent (no event_id)
-    acks = [m for m in received_messages if m.get("type") == "event_ack"]
-    assert len(acks) == 0
+    assert len(events) == 1
+    assert len(received_acks) == 1
+    assert received_acks[0]["events_processed"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -447,8 +512,11 @@ async def test_sync_stream_auto_ack_after_processing() -> None:
     assert received_acks[0]["events_processed"] == ["evt_sync_001"]
 
 
-async def test_sync_stream_no_ack_without_event_id() -> None:
-    """SyncEventStream must not ACK events without event_id."""
+async def test_sync_stream_ack_without_event_id_sends_empty_list() -> None:
+    """SyncEventStream must ACK every yielded event, including those without
+    ``event_id`` — same contract as the async path. The frame carries an
+    empty ``events_processed`` list when ``event_id`` is absent.
+    """
     received_messages: list[dict] = []
 
     async def handler(ws):
@@ -472,7 +540,7 @@ async def test_sync_stream_no_ack_without_event_id() -> None:
             )
         )
         with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
-            raw = await asyncio.wait_for(ws.recv(), timeout=0.5)
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
             received_messages.append(json.loads(raw))
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(ws.wait_closed(), timeout=1.0)
@@ -496,7 +564,8 @@ async def test_sync_stream_no_ack_without_event_id() -> None:
 
     assert count == 1
     acks = [m for m in received_messages if m.get("type") == "event_ack"]
-    assert len(acks) == 0
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == []
 
 
 async def test_trailing_ack_flushed_on_clean_close() -> None:
