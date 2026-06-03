@@ -81,3 +81,9 @@ dmypy.json
 scratch/
 tmp/
 *.log
+
+# Local-only Claude Code config (skills, worktrees, locks, personal settings)
+.claude/skills/
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
