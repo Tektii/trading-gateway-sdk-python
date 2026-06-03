@@ -436,6 +436,8 @@ def test_detailed_health_parse() -> None:
     health = DetailedHealthStatus.model_validate(SAMPLE_HEALTH)
     assert health.status == "connected"
     assert len(health.providers) == 1
+    assert health.git_sha == "abc1234"
+    assert health.version == "0.1.0"
 
 
 def test_circuit_breaker_status_parse() -> None:
