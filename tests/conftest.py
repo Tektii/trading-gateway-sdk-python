@@ -95,6 +95,8 @@ SAMPLE_CONNECTION_STATUS = {
 
 SAMPLE_HEALTH = {
     "status": "connected",
+    "git_sha": "abc1234",
+    "version": "0.1.0",
     "providers": [
         {
             "platform": "alpaca-paper",
