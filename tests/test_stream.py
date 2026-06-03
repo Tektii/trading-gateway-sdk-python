@@ -5,12 +5,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import random
+import threading
+import time
+from datetime import UTC, datetime
 
+import pytest
 import websockets
 import websockets.asyncio.server
 
-from tektii.models import CandleEvent, ErrorEvent, OrderEvent
+from tektii.models import BacktestCompleteEvent, CandleEvent, ErrorEvent, OrderEvent
 from tektii.stream import AsyncEventStream, SyncEventStream
 
 
@@ -777,3 +782,465 @@ async def test_multiple_events() -> None:
 
     assert len(events) == 3
     assert all(isinstance(e, CandleEvent) for e in events)
+
+
+# ---------------------------------------------------------------------------
+# End-of-backtest terminal — clean exit, flush-ACK, optional hook
+# ---------------------------------------------------------------------------
+
+
+def _backtest_complete(broker: str = "tektii") -> dict:
+    return {
+        "type": "backtest_complete",
+        "broker": broker,
+        "timestamp": "2025-01-15T10:31:00Z",
+    }
+
+
+async def test_backtest_complete_exits_cleanly_without_yielding() -> None:
+    """A clean end-of-backtest terminal ends the loop without yielding the
+    terminal as an event and without raising.
+    """
+
+    async def handler(ws):
+        await ws.send(json.dumps(_sample_candle("evt_eob_1")))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)  # candle ACK
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)  # terminal ACK
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+
+    async def collect() -> None:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+
+    try:
+        await asyncio.wait_for(collect(), timeout=5.0)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    # Only the candle is yielded — the terminal is intercepted, not yielded.
+    assert len(events) == 1
+    assert isinstance(events[0], CandleEvent)
+
+
+async def test_backtest_complete_does_not_reconnect_even_when_enabled() -> None:
+    """The terminal must short-circuit the reconnect loop: a clean end is not
+    a disconnect, so the SDK must not re-dial even with ``reconnect=True``.
+    """
+    connection_count = {"n": 0}
+
+    async def handler(ws):
+        connection_count["n"] += 1
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)  # terminal ACK
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+
+    async def collect() -> None:
+        stream = AsyncEventStream(ws_url=url, reconnect=True, max_reconnect_delay=0.1)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+
+    try:
+        await asyncio.wait_for(collect(), timeout=5.0)
+        # Give any erroneous reconnect attempt time to re-dial.
+        await asyncio.sleep(0.3)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert events == []
+    assert connection_count["n"] == 1
+
+
+async def test_backtest_complete_sends_flush_ack() -> None:
+    """The SDK sends a flush-ACK (``event_ack`` with an empty list) immediately
+    on terminal receipt — the latency optimisation that releases engine teardown.
+    """
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            received.append(json.loads(raw))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for _event in stream:
+                pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    acks = [m for m in received if m.get("type") == "event_ack"]
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == []
+
+
+async def test_backtest_complete_fires_hook_once() -> None:
+    """The optional hook fires exactly once with the parsed terminal event."""
+    calls: list[BacktestCompleteEvent] = []
+
+    async def handler(ws):
+        await ws.send(json.dumps(_backtest_complete(broker="tektii")))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=calls.append)
+        async with stream:
+            async for _event in stream:
+                pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(calls) == 1
+    assert isinstance(calls[0], BacktestCompleteEvent)
+    assert calls[0].broker == "tektii"
+
+
+async def test_backtest_complete_awaits_async_hook() -> None:
+    """An async hook is awaited exactly once."""
+    calls: list[BacktestCompleteEvent] = []
+
+    async def hook(event: BacktestCompleteEvent) -> None:
+        calls.append(event)
+
+    async def handler(ws):
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=hook)
+        async with stream:
+            async for _event in stream:
+                pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(calls) == 1
+    assert calls[0].broker == "tektii"
+
+
+async def test_backtest_complete_absent_hook_is_noop() -> None:
+    """No hook supplied → still a clean exit, no error."""
+
+    async def handler(ws):
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for _event in stream:
+                pass
+    finally:
+        server.close()
+        await server.wait_closed()
+    # Reaching here without raising is the assertion.
+
+
+async def test_sync_backtest_complete_fires_hook_on_iterating_thread() -> None:
+    """SyncEventStream fires the hook exactly once, on the iterating (main)
+    thread — not the background WebSocket loop thread.
+    """
+    calls: list[tuple[BacktestCompleteEvent, int]] = []
+
+    def hook(event: BacktestCompleteEvent) -> None:
+        calls.append((event, threading.get_ident()))
+
+    async def handler(ws):
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+
+    def run_sync_iter() -> int:
+        stream = SyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=hook)
+        with stream:
+            for _event in stream:
+                pass
+        return threading.get_ident()
+
+    try:
+        iter_thread = await asyncio.to_thread(run_sync_iter)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(calls) == 1
+    assert isinstance(calls[0][0], BacktestCompleteEvent)
+    assert calls[0][1] == iter_thread
+
+
+async def test_backtest_complete_fires_hook_exactly_once_and_short_circuits() -> None:
+    """A second terminal (or any frame) after the first must never be
+    processed — the loop returns on the first terminal, so the hook fires
+    exactly once and nothing further is yielded.
+    """
+    calls: list[BacktestCompleteEvent] = []
+
+    async def handler(ws):
+        with contextlib.suppress(websockets.exceptions.ConnectionClosed):
+            await ws.send(json.dumps(_backtest_complete()))
+            # A trailing candle and a second terminal — both must be ignored.
+            await ws.send(json.dumps(_sample_candle("evt_after_terminal")))
+            await ws.send(json.dumps(_backtest_complete()))
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+
+    async def collect() -> None:
+        stream = AsyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=calls.append)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+
+    try:
+        await asyncio.wait_for(collect(), timeout=5.0)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert events == []  # nothing after the terminal is yielded
+    assert len(calls) == 1  # hook fired exactly once
+
+
+async def test_backtest_complete_absent_broker_is_none() -> None:
+    """The terminal's ``broker`` is optional — a payload without it parses and
+    the hook receives ``broker=None``.
+    """
+    calls: list[BacktestCompleteEvent] = []
+
+    async def handler(ws):
+        await ws.send(
+            json.dumps({"type": "backtest_complete", "timestamp": "2025-01-15T10:31:00Z"})
+        )
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=calls.append)
+        async with stream:
+            async for _event in stream:
+                pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(calls) == 1
+    assert calls[0].broker is None
+
+
+async def test_backtest_complete_absent_timestamp_still_parses() -> None:
+    """The terminal is load-bearing: a payload missing ``timestamp`` must still
+    parse and fire the hook (timestamp defaults to the epoch), not be dropped
+    as unrecognised and fall through to the disconnect path.
+    """
+    calls: list[BacktestCompleteEvent] = []
+
+    async def handler(ws):
+        await ws.send(json.dumps({"type": "backtest_complete", "broker": "tektii"}))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=calls.append)
+        async with stream:
+            async for _event in stream:
+                pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(calls) == 1
+    assert calls[0].timestamp == datetime(1970, 1, 1, tzinfo=UTC)
+
+
+async def test_sync_early_break_closes_promptly_and_quietly(caplog) -> None:
+    """Regression: breaking out of a sync stream mid-flight must not stall on
+    ``close_timeout`` or log a spurious shutdown warning. The background loop
+    is still driving the stream, so ``close()`` must unwind it without blocking
+    on a future the loop-stop would abandon.
+    """
+
+    async def handler(ws):
+        # Stream continuously so the client is mid-recv when it breaks.
+        with contextlib.suppress(websockets.exceptions.ConnectionClosed):
+            i = 0
+            while True:
+                await ws.send(json.dumps(_sample_candle(f"evt_break_{i}")))
+                await asyncio.sleep(0.02)
+                i += 1
+
+    server, url = await _run_ws_server(handler)
+
+    def run_sync_iter() -> float:
+        stream = SyncEventStream(ws_url=url, reconnect=False)
+        n = 0
+        with stream:
+            for _event in stream:
+                n += 1
+                if n >= 2:
+                    break
+            t0 = time.perf_counter()
+        return time.perf_counter() - t0  # time spent in close()
+
+    try:
+        with caplog.at_level(logging.WARNING, logger="tektii.stream"):
+            elapsed = await asyncio.to_thread(run_sync_iter)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    # Fix makes this ~0.01s; assert well under a single close_timeout (5s).
+    assert elapsed < 3.0
+    noisy = [
+        r.getMessage()
+        for r in caplog.records
+        if "shutdown" in r.getMessage() or "did not exit" in r.getMessage()
+    ]
+    assert noisy == []
+
+
+async def test_backtest_complete_sync_hook_exception_propagates() -> None:
+    """A raising hook surfaces to the caller (we do not swallow user teardown
+    bugs) — async path, plain callable.
+    """
+
+    def hook(event: BacktestCompleteEvent) -> None:
+        raise RuntimeError("teardown boom")
+
+    async def handler(ws):
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=hook)
+        with pytest.raises(RuntimeError, match="teardown boom"):
+            async with stream:
+                async for _event in stream:
+                    pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+async def test_backtest_complete_async_hook_exception_propagates() -> None:
+    """A raising awaitable hook surfaces to the caller — async path, coroutine."""
+
+    async def hook(event: BacktestCompleteEvent) -> None:
+        raise RuntimeError("async teardown boom")
+
+    async def handler(ws):
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=hook)
+        with pytest.raises(RuntimeError, match="async teardown boom"):
+            async with stream:
+                async for _event in stream:
+                    pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+async def test_sync_backtest_complete_hook_exception_propagates() -> None:
+    """A raising hook surfaces to the caller on the sync path too."""
+
+    def hook(event: BacktestCompleteEvent) -> None:
+        raise RuntimeError("sync teardown boom")
+
+    async def handler(ws):
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+
+    def run_sync_iter() -> None:
+        stream = SyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=hook)
+        with stream:
+            for _event in stream:
+                pass
+
+    try:
+        with pytest.raises(RuntimeError, match="sync teardown boom"):
+            await asyncio.to_thread(run_sync_iter)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+async def test_sync_backtest_complete_sends_flush_ack() -> None:
+    """SyncEventStream also flushes the terminal ACK on terminal receipt."""
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send(json.dumps(_backtest_complete()))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            received.append(json.loads(raw))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+
+    def run_sync_iter() -> None:
+        stream = SyncEventStream(ws_url=url, reconnect=False)
+        with stream:
+            for _event in stream:
+                pass
+
+    try:
+        await asyncio.to_thread(run_sync_iter)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    acks = [m for m in received if m.get("type") == "event_ack"]
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == []

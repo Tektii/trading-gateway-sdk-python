@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 import logging
 import queue
@@ -20,7 +21,7 @@ import random
 import threading
 import time
 import warnings
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -31,7 +32,13 @@ import websockets.asyncio.client
 import websockets.exceptions
 from pydantic import TypeAdapter
 
-from tektii.models import GatewayEvent, PingEvent
+from tektii.models import BacktestCompleteEvent, GatewayEvent, PingEvent
+
+# Hook fired once on a clean end-of-backtest terminal. The async stream
+# accepts a coroutine function (awaited) or a plain callable; the sync stream
+# accepts a plain callable, run on the iterating thread.
+AsyncBacktestCompleteHook = Callable[[BacktestCompleteEvent], Awaitable[None] | None]
+BacktestCompleteHook = Callable[[BacktestCompleteEvent], None]
 
 logger = logging.getLogger("tektii.stream")
 
@@ -119,6 +126,7 @@ class AsyncEventStream:
         reconnect: bool = True,
         max_reconnect_delay: float = 30.0,
         max_reconnect_attempts: int | None = None,
+        on_backtest_complete: AsyncBacktestCompleteHook | None = None,
         *,
         _ack_on_yield: bool = True,
     ) -> None:
@@ -126,13 +134,18 @@ class AsyncEventStream:
         self._api_key = api_key
         # Internal: SyncEventStream disables inline ACK so the sync iterator
         # can own ACK timing across the thread boundary (the async-side ACK
-        # would fire before the sync user's for-body runs).
+        # would fire before the sync user's for-body runs). It owns the hook
+        # too, for the same reason — running it on the iterating thread.
         self._ack_on_yield = _ack_on_yield
+        self._on_backtest_complete = on_backtest_complete
         self._reconnect = reconnect
         self._max_reconnect_delay = max_reconnect_delay
         self._max_reconnect_attempts = max_reconnect_attempts
         self._ws: websockets.asyncio.client.ClientConnection | None = None
         self._closed = False
+        # Set when a clean end-of-backtest terminal is received, so the sync
+        # wrapper can fire its hook on the iterating thread after the loop ends.
+        self._terminal_event: BacktestCompleteEvent | None = None
         _warn_if_ws_credentials_over_plaintext(ws_url, api_key)
 
     async def __aenter__(self) -> AsyncEventStream:
@@ -197,6 +210,30 @@ class AsyncEventStream:
                 err,
             )
 
+    async def _handle_terminal(self, event: BacktestCompleteEvent) -> None:
+        """Process a clean end-of-backtest terminal.
+
+        Records it (so the sync wrapper can find it after the loop ends),
+        flushes an ACK immediately — a latency optimisation that lets the
+        engine release its teardown without waiting out its ack-timeout;
+        best-effort, so send failures are swallowed — and fires the optional
+        hook once. The sync wrapper disables inline ACK (``_ack_on_yield=
+        False``) and owns its hook timing, so the hook is skipped here for it
+        and fired on the iterating thread instead.
+        """
+        self._terminal_event = event
+        try:
+            await self._ack([])
+        except Exception as err:  # noqa: BLE001 — best-effort optimisation
+            # Logged at debug, not warning: the flush-ACK is a latency
+            # optimisation, not correctness — the engine tears down anyway
+            # once its bounded ack-timeout elapses.
+            logger.debug("Failed to flush end-of-backtest ACK: %s", err)
+        if self._ack_on_yield and self._on_backtest_complete is not None:
+            result = self._on_backtest_complete(event)
+            if inspect.isawaitable(result):
+                await result
+
     async def __aiter__(self) -> AsyncIterator[GatewayEvent]:
         attempt = 0
 
@@ -234,6 +271,13 @@ class AsyncEventStream:
                         with contextlib.suppress(Exception):
                             await self._ws.send(json.dumps({"type": "pong"}))
                         continue
+
+                    # Clean end-of-backtest terminal — never yield to user.
+                    # Handle it (ACK + hook), then exit the loop cleanly: a
+                    # clean end is not a disconnect, so no error, no reconnect.
+                    if isinstance(event, BacktestCompleteEvent):
+                        await self._handle_terminal(event)
+                        return
 
                     # Yield to the user, then ACK immediately after their
                     # body runs. ``finally`` guarantees the ACK fires on
@@ -321,6 +365,7 @@ class SyncEventStream:
         reconnect: bool = True,
         max_reconnect_delay: float = 30.0,
         max_reconnect_attempts: int | None = None,
+        on_backtest_complete: BacktestCompleteHook | None = None,
         close_timeout: float = 5.0,
     ) -> None:
         self._ws_url = ws_url
@@ -328,6 +373,7 @@ class SyncEventStream:
         self._reconnect = reconnect
         self._max_reconnect_delay = max_reconnect_delay
         self._max_reconnect_attempts = max_reconnect_attempts
+        self._on_backtest_complete = on_backtest_complete
         self._close_timeout = close_timeout
 
         self._queue: queue.Queue[GatewayEvent | _Sentinel] = queue.Queue()
@@ -346,21 +392,39 @@ class SyncEventStream:
 
     def close(self) -> None:
         """Stop the background event loop and close the WebSocket."""
-        if self._loop is not None and self._async_stream is not None:
-            future = asyncio.run_coroutine_threadsafe(self._async_stream.close(), self._loop)
-            try:
-                future.result(timeout=self._close_timeout)
-            except Exception as err:  # noqa: BLE001 — best-effort close path
-                logger.warning("Error closing async stream during shutdown: %s", err)
-        if self._loop is not None:
-            self._loop.call_soon_threadsafe(self._loop.stop)
+        loop = self._loop
+        # ``is_running()`` is only True when the user stops iterating early
+        # (the loop is still driving the stream). On a natural end — server
+        # close or a clean end-of-backtest terminal — the background loop has
+        # already exited and the async stream closed itself, so there is
+        # nothing to schedule here; we just join the finished thread.
+        #
+        # When it *is* running, fire-and-forget the close: closing the socket
+        # makes the pending recv raise, which ends ``_consume`` and returns
+        # control from ``run_until_complete``, unwinding the thread. We must
+        # NOT block on this coroutine's future — ``run_until_complete`` stops
+        # the loop the instant ``_consume`` ends, which can abandon the
+        # separately scheduled future before its done-callback resolves it,
+        # surfacing as a spurious ``close_timeout`` wait and shutdown warning.
+        # The thread join below is the real synchronisation point.
+        if loop is not None and loop.is_running() and self._async_stream is not None:
+            asyncio.run_coroutine_threadsafe(self._async_stream.close(), loop)
         if self._thread is not None:
             self._thread.join(timeout=self._close_timeout)
             if self._thread.is_alive():
-                logger.warning(
-                    "Background WebSocket thread did not exit within %.1fs",
-                    self._close_timeout,
-                )
+                # The loop didn't unwind on its own — force it down, then
+                # give the thread one more bounded chance to exit. This path
+                # skips the graceful ``async with`` close, so a wedged loop may
+                # leave the socket fd to be reclaimed by GC; acceptable for a
+                # best-effort shutdown that has already waited a full timeout.
+                if loop is not None:
+                    loop.call_soon_threadsafe(loop.stop)
+                self._thread.join(timeout=self._close_timeout)
+                if self._thread.is_alive():
+                    logger.warning(
+                        "Background WebSocket thread did not exit within %.1fs",
+                        self._close_timeout,
+                    )
             self._thread = None
         self._loop = None
 
@@ -376,8 +440,10 @@ class SyncEventStream:
         assert self._loop is not None
         asyncio.set_event_loop(self._loop)
         self._loop.run_until_complete(self._consume())
-        # Signal iterator to stop
-        self._queue.put(_Sentinel())
+        # Signal iterator to stop, carrying any clean end-of-backtest terminal
+        # so the iterator can fire the hook on the iterating thread.
+        terminal = self._async_stream._terminal_event if self._async_stream is not None else None
+        self._queue.put(_Sentinel(terminal=terminal))
 
     async def _consume(self) -> None:
         """Consume async events and push to the sync queue.
@@ -427,6 +493,10 @@ class SyncEventStream:
                 if isinstance(item, _Sentinel):
                     if item.error:
                         raise item.error
+                    # Fire the end-of-backtest hook once, on this (iterating)
+                    # thread, before the loop returns. Absence is a no-op.
+                    if item.terminal is not None and self._on_backtest_complete is not None:
+                        self._on_backtest_complete(item.terminal)
                     return
                 pending_ack = [item.event_id] if item.event_id is not None else []
                 yield item
@@ -444,10 +514,20 @@ class SyncEventStream:
 
 
 class _Sentinel:
-    """Signals the sync iterator to stop."""
+    """Signals the sync iterator to stop.
 
-    def __init__(self, error: Exception | None = None) -> None:
+    ``terminal`` carries the clean end-of-backtest event (when the stream
+    ended on a ``backtest_complete`` terminal) so the sync iterator can fire
+    its hook on the iterating thread.
+    """
+
+    def __init__(
+        self,
+        error: Exception | None = None,
+        terminal: BacktestCompleteEvent | None = None,
+    ) -> None:
         self.error = error
+        self.terminal = terminal
 
     def __repr__(self) -> str:
-        return f"_Sentinel(error={self.error!r})"
+        return f"_Sentinel(error={self.error!r}, terminal={self.terminal!r})"

@@ -34,7 +34,7 @@ from tektii.models import (
 )
 
 if TYPE_CHECKING:
-    from tektii.stream import AsyncEventStream
+    from tektii.stream import AsyncBacktestCompleteHook, AsyncEventStream
 
 
 _LOCALHOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
@@ -627,7 +627,9 @@ class AsyncTradingGateway:
     # WebSocket Streaming
     # -----------------------------------------------------------------------
 
-    def stream(self) -> AsyncEventStream:
+    def stream(
+        self, *, on_backtest_complete: AsyncBacktestCompleteHook | None = None
+    ) -> AsyncEventStream:
         """Build an ``AsyncEventStream`` bound to this gateway.
 
         This is a synchronous factory — no I/O happens until the returned
@@ -636,6 +638,17 @@ class AsyncTradingGateway:
             async with gw.stream() as events:
                 async for event in events:
                     ...
+
+        Args:
+            on_backtest_complete: Optional hook fired exactly once when a
+                backtest reaches a clean end (the engine's end-of-backtest
+                terminal). Receives the
+                :class:`~tektii.models.BacktestCompleteEvent` and may be a
+                plain function or a coroutine function (which is awaited). The
+                run loop then exits cleanly — no error, no reconnect. Useful
+                for teardown; call :meth:`get_account` from inside it for the
+                final equity. Against live/mock backends the terminal never
+                arrives, so the hook simply never fires.
         """
         from tektii.stream import AsyncEventStream
 
@@ -643,6 +656,7 @@ class AsyncTradingGateway:
         return AsyncEventStream(
             ws_url=ws_url,
             api_key=self._api_key,
+            on_backtest_complete=on_backtest_complete,
         )
 
 

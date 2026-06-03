@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-06-03
+
+### Added
+
+- The event stream now recognises a clean **end-of-backtest** terminal
+  (`backtest_complete`) and ends the run loop gracefully — no error, no
+  reconnect attempt, no spurious disconnect log. Previously the close that
+  follows a finished backtest surfaced as a disconnect, so the stream waited
+  out a timeout or tried to reconnect and logged an error on every clean run.
+- Optional `on_backtest_complete=` hook on `gw.stream(...)` (both
+  `TradingGateway` and `AsyncTradingGateway`), fired exactly once with the
+  `BacktestCompleteEvent` just before the loop returns; absence is a no-op.
+  The async client accepts a plain or a coroutine function; the sync client
+  runs the hook on the iterating thread. The terminal carries `broker` and
+  `timestamp` — call `get_account()` from inside the hook for final equity.
+  Useful for strategy teardown.
+- On terminal receipt the SDK now sends a flush-ACK immediately, letting the
+  backtest engine release its teardown without waiting out its ack-timeout
+  (a latency optimisation; the engine is correct either way).
+
+### Fixed
+
+- `TradingGateway.stream()` (sync) no longer stalls for the full
+  `close_timeout` and logs a spurious shutdown error on close. This affected
+  both a stream that ended on its own (a clean backtest end, or any server
+  close with `reconnect=False`) and breaking out of the loop early: shutdown
+  used to block on a close future that the background loop could abandon as it
+  stopped. Close now unwinds the loop without blocking on that future.
+
 ## [1.6.0] — 2026-06-03
 
 ### Added
