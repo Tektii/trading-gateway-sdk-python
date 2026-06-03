@@ -905,9 +905,7 @@ async def test_backtest_complete_fires_hook_once() -> None:
 
     server, url = await _run_ws_server(handler)
     try:
-        stream = AsyncEventStream(
-            ws_url=url, reconnect=False, on_backtest_complete=calls.append
-        )
+        stream = AsyncEventStream(ws_url=url, reconnect=False, on_backtest_complete=calls.append)
         async with stream:
             async for _event in stream:
                 pass
