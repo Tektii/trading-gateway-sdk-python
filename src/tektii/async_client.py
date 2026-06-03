@@ -532,8 +532,7 @@ class AsyncTradingGateway:
         """
         if (notional is None) == (equity_fraction is None):
             raise ValueError(
-                "quantity_for_notional requires exactly one of `notional` or "
-                "`equity_fraction`."
+                "quantity_for_notional requires exactly one of `notional` or `equity_fraction`."
             )
 
         ref_price = (
