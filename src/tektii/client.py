@@ -49,7 +49,7 @@ from tektii.models import (
 )
 
 if TYPE_CHECKING:
-    from tektii.stream import SyncEventStream
+    from tektii.stream import BacktestCompleteHook, SyncEventStream
 
 _T = TypeVar("_T")
 
@@ -487,7 +487,9 @@ class TradingGateway:
     # WebSocket Streaming
     # -----------------------------------------------------------------------
 
-    def stream(self) -> SyncEventStream:
+    def stream(
+        self, *, on_backtest_complete: BacktestCompleteHook | None = None
+    ) -> SyncEventStream:
         """Connect to the gateway WebSocket and stream events.
 
         Returns a ``SyncEventStream`` (context manager + iterator)::
@@ -495,6 +497,17 @@ class TradingGateway:
             with gw.stream() as events:
                 for event in events:
                     ...
+
+        Args:
+            on_backtest_complete: Optional hook fired exactly once when a
+                backtest reaches a clean end (the engine's end-of-backtest
+                terminal). Receives the
+                :class:`~tektii.models.BacktestCompleteEvent` and runs on the
+                iterating thread, just before the loop returns cleanly — no
+                error, no reconnect. Useful for teardown; call
+                :meth:`get_account` from inside it for the final equity.
+                Against live/mock backends the terminal never arrives, so the
+                hook simply never fires.
         """
         from tektii.stream import SyncEventStream
 
@@ -502,4 +515,5 @@ class TradingGateway:
         return SyncEventStream(
             ws_url=ws_url,
             api_key=self._api_key,
+            on_backtest_complete=on_backtest_complete,
         )

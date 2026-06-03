@@ -6,10 +6,10 @@ WebSocket event models are hand-written here since they aren't in the OpenAPI sp
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
 
 # ---------------------------------------------------------------------------
 # Re-exports from generated models (REST API types)
@@ -80,6 +80,40 @@ class BaseEvent(BaseModel):
 
 class PingEvent(BaseEvent):
     type: Literal["ping"] = "ping"
+
+
+class BacktestCompleteEvent(BaseEvent):
+    """Terminal signalling a clean end-of-backtest.
+
+    Sent by the Tektii backtest engine (via the gateway) when a backtest
+    finishes replaying, immediately before the WebSocket Close frame. It marks
+    a *clean* end — distinct from a ``ConnectionEvent`` carrying
+    ``BROKER_DISCONNECTED``, which is a feed loss. The SDK intercepts this
+    terminal, exits the run loop cleanly, and invokes the optional
+    ``on_backtest_complete`` hook; it is never yielded to the user.
+
+    The wire payload carries only ``broker`` and ``timestamp`` — a strategy
+    that needs final equity should call ``get_account()`` from the hook.
+    """
+
+    type: Literal["backtest_complete"] = "backtest_complete"
+    broker: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_absent_timestamp(cls, data: Any) -> Any:
+        """Default a missing ``timestamp`` to the Unix epoch.
+
+        This terminal is load-bearing: it must always parse and drive a clean
+        exit, never be dropped as "unrecognised" and fall through to the
+        spurious-disconnect path. ``timestamp`` is required on every other
+        event, so rather than weaken the shared :class:`BaseEvent` type we fill
+        an absent value here (epoch = "unknown"). A present value is parsed
+        normally.
+        """
+        if isinstance(data, dict) and data.get("timestamp") is None:
+            return {**data, "timestamp": datetime(1970, 1, 1, tzinfo=UTC)}
+        return data
 
 
 class CandleEvent(BaseEvent):
@@ -154,6 +188,7 @@ def _get_event_type(data: Any) -> str:
 
 GatewayEvent = Annotated[
     Annotated[PingEvent, Tag("ping")]
+    | Annotated[BacktestCompleteEvent, Tag("backtest_complete")]
     | Annotated[CandleEvent, Tag("candle")]
     | Annotated[QuoteEvent, Tag("quote")]
     | Annotated[OrderEvent, Tag("order")]
@@ -214,8 +249,11 @@ __all__ = [
     "TradeEventType",
     # WebSocket event models
     # (``PingEvent`` is intentionally omitted — pings are intercepted by the
-    # SDK and never yielded to users.)
+    # SDK and never yielded to users. ``BacktestCompleteEvent`` is also
+    # intercepted, but is exported because users reference it in their
+    # ``on_backtest_complete`` hook signature.)
     "BaseEvent",
+    "BacktestCompleteEvent",
     "CandleEvent",
     "QuoteEvent",
     "OrderEvent",
