@@ -4,11 +4,7 @@
 
 Python SDK for the [Trading Gateway](https://github.com/Tektii/trading-gateway). Wraps the gateway's REST + WebSocket API with typed Pydantic models and sync/async clients. Internal auto-ACK lets the same strategy code run against live brokers and the Tektii backtest engine without changes.
 
-This is an **open-source client library** — it does not contain any backend logic. The gateway itself lives at `../tektii-gateway/`.
-
-## Task Tracking
-
-Linear is the source of truth for tasks/bugs/features. See [docs/LINEAR.md](./docs/LINEAR.md) for agent conventions (required labels, lifecycle rules, MCP tool cheat sheet). Tickets for this repo use the `area/gateway` label with a `[py-sdk]` prefix in the title.
+This is an **open-source client library** — it does not contain any backend logic. The gateway is a separate open-source project: https://github.com/Tektii/trading-gateway
 
 ## Architecture
 
@@ -48,7 +44,7 @@ REST API models are generated from the Trading Gateway's OpenAPI spec using `dat
 `./scripts/generate.sh` fetches the spec from the public [trading-gateway](https://github.com/Tektii/trading-gateway) repo (`main` branch by default). No vendored `openapi.json` lives in this repo — overrides:
 
 - `GATEWAY_REF=<branch|tag|sha>` — pin the fetch to a specific ref.
-- `OPENAPI_SPEC=<path-or-url>` — use a local file (e.g. `../tektii-gateway/openapi.json`) or arbitrary URL.
+- `OPENAPI_SPEC=<path-or-url>` — use a local file (e.g. a checked-out copy of the gateway's `openapi.json`) or arbitrary URL.
 
 **Generated file**: `src/tektii/_generated/models.py` — DO NOT HAND-EDIT. Regenerate with `./scripts/generate.sh`.
 
@@ -92,11 +88,6 @@ All streaming tests use `reconnect=False` to avoid hanging on server close.
 - Enums are `StrEnum` for JSON compat
 - No `unsafe` code, no `# type: ignore` outside generated files
 
-## Relationship to Other Repos
+## Relationship to the Gateway
 
-| Repo | Relationship |
-|------|-------------|
-| `tektii-gateway/` | The API this SDK wraps. Its `openapi.json` (fetched from GitHub at generate time) is the source of truth for models. |
-| `tektii-be/` | The backtest engine implements the same protocol as the gateway. Auto-ACK is for this. |
-| `tektii-ui/` | No direct relationship. |
-| `tektii-infra/` | Python conventions (ruff, mypy config) were initially drawn from here. |
+The [Trading Gateway](https://github.com/Tektii/trading-gateway) is the API this SDK wraps; its `openapi.json` (fetched from GitHub at generate time) is the source of truth for the REST models. The Tektii backtest engine implements the same wire protocol as the gateway — the hidden auto-ACK exists so the same strategy code runs unchanged against both a live gateway and the backtest engine.
