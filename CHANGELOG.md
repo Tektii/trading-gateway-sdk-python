@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-06-03
+
+### Added
+
+- `quantity_for_notional()` on both `TradingGateway` and
+  `AsyncTradingGateway` — sizes an order by a target notional or a fraction
+  of account equity instead of a hand-picked instrument amount. An order
+  `quantity` is a fixed instrument amount, not a share of capital, so a
+  default like `0.01` BTC is a near-zero position on a six-figure account and
+  produces a flat, meaningless backtest. Pass `notional="5000"` for $5,000 of
+  exposure or `equity_fraction=0.10` for 10% of equity; the helper resolves
+  the quote midpoint `(bid + ask) / 2` (override with `price=` to skip the
+  quote fetch) and returns a `Decimal` ready for `submit_order()`.
+
 ## [1.5.1] — 2026-04-29
 
 ### Fixed

@@ -219,6 +219,24 @@ use `AsyncTradingGateway` there instead.
 | `get_quote(symbol)` | Current bid/ask/last |
 | `get_bars(symbol, timeframe, ...)` | Historical OHLCV bars |
 
+### Sizing
+
+| Method | Description |
+|--------|-------------|
+| `quantity_for_notional(symbol, *, notional=, equity_fraction=, price=)` | Convert a target notional or fraction of equity into an instrument quantity at the current price |
+
+An order `quantity` is a fixed instrument amount, not a share of capital — so a
+default like `0.01` BTC is a near-zero position on a six-figure account.
+`quantity_for_notional` sizes the trade for you: pass `notional="5000"` for
+$5,000 of exposure or `equity_fraction=0.10` for 10% of account equity. It uses
+the quote midpoint as the reference price (override with `price=`) and returns a
+`Decimal` ready for `submit_order`:
+
+```python
+qty = gw.quantity_for_notional("BTC/USD", equity_fraction=0.10)
+gw.submit_order("BTC/USD", "buy", qty)
+```
+
 ### Account & System
 
 | Method | Description |
