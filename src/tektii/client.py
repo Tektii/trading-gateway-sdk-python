@@ -407,6 +407,35 @@ class TradingGateway:
         )
 
     # -----------------------------------------------------------------------
+    # Sizing
+    # -----------------------------------------------------------------------
+
+    def quantity_for_notional(
+        self,
+        symbol: str,
+        *,
+        notional: str | Decimal | None = None,
+        equity_fraction: float | str | Decimal | None = None,
+        price: str | Decimal | None = None,
+    ) -> Decimal:
+        """Size an order by target notional or fraction of account equity.
+
+        Sync wrapper around
+        :meth:`AsyncTradingGateway.quantity_for_notional`. Provide exactly one
+        of ``notional`` or ``equity_fraction`` (``0.10`` = 10% of equity); the
+        reference price is the quote midpoint unless ``price`` is supplied.
+        Returns a :class:`~decimal.Decimal` ready for :meth:`submit_order`.
+        """
+        return self._run(
+            lambda gw: gw.quantity_for_notional(
+                symbol,
+                notional=notional,
+                equity_fraction=equity_fraction,
+                price=price,
+            )
+        )
+
+    # -----------------------------------------------------------------------
     # Trades
     # -----------------------------------------------------------------------
 

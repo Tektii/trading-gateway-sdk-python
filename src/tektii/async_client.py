@@ -6,7 +6,7 @@ import asyncio
 import os
 import random
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, urlsplit
 
@@ -488,6 +488,90 @@ class AsyncTradingGateway:
         return [Bar.model_validate(item) for item in data]
 
     # -----------------------------------------------------------------------
+    # Sizing
+    # -----------------------------------------------------------------------
+
+    async def quantity_for_notional(
+        self,
+        symbol: str,
+        *,
+        notional: str | Decimal | None = None,
+        equity_fraction: float | str | Decimal | None = None,
+        price: str | Decimal | None = None,
+    ) -> Decimal:
+        """Size an order by target notional or fraction of account equity.
+
+        An order ``quantity`` is a *fixed instrument amount*, not a share of
+        capital — so a default like ``0.01`` BTC is a near-zero position on a
+        six-figure account and produces a flat, meaningless backtest until you
+        hand-size it to the instrument's price. This helper closes that gap:
+        give it a notional or a fraction of equity and it returns the quantity
+        to trade at the current price.
+
+        Provide **exactly one** of:
+
+        - ``notional``: target position value in the account currency
+          (e.g. ``"5000"`` for $5,000 of exposure).
+        - ``equity_fraction``: share of current account equity, where ``0.10``
+          means 10%. This fetches :meth:`get_account` to read equity.
+
+        The reference price is the quote **midpoint** ``(bid + ask) / 2``, read
+        via :meth:`get_quote`. Pass ``price`` to supply your own reference
+        (e.g. the latest bar close while handling a stream event) and skip the
+        quote request entirely.
+
+        Returns a :class:`~decimal.Decimal` ready to pass to
+        :meth:`submit_order`; round it to your venue's lot size if required.
+        Raises :class:`ValueError` if the target is under- or over-specified,
+        or if the resolved price, notional, or fraction is not positive.
+
+        Example::
+
+            qty = await gw.quantity_for_notional("BTC/USD", equity_fraction=0.10)
+            await gw.submit_order("BTC/USD", "buy", qty)
+        """
+        if (notional is None) == (equity_fraction is None):
+            raise ValueError(
+                "quantity_for_notional requires exactly one of `notional` or "
+                "`equity_fraction`."
+            )
+
+        ref_price = (
+            _to_decimal(price, field="price")
+            if price is not None
+            else await self._midpoint_price(symbol)
+        )
+        if ref_price <= 0:
+            raise ValueError(f"Reference price must be positive (got {ref_price}).")
+
+        if notional is not None:
+            target = _to_decimal(notional, field="notional")
+            if target <= 0:
+                raise ValueError(f"notional must be positive (got {target}).")
+        else:
+            # Non-None by the exactly-one check above; assert narrows the type.
+            assert equity_fraction is not None
+            fraction = _to_decimal(equity_fraction, field="equity_fraction")
+            if fraction <= 0:
+                raise ValueError(f"equity_fraction must be positive (got {fraction}).")
+            account = await self.get_account()
+            # equity is a gateway-guaranteed decimal string; let a malformed
+            # value surface as ArithmeticError rather than a "user input" error.
+            target = Decimal(account.equity) * fraction
+
+        return target / ref_price
+
+    async def _midpoint_price(self, symbol: str) -> Decimal:
+        """Current reference price as the quote midpoint ``(bid + ask) / 2``.
+
+        ``bid``/``ask`` are gateway-guaranteed decimal strings, so they go
+        straight to ``Decimal`` — a malformed value is a gateway contract
+        violation that should raise loudly, not be reframed as user error.
+        """
+        quote = await self.get_quote(symbol)
+        return (Decimal(quote.bid) + Decimal(quote.ask)) / 2
+
+    # -----------------------------------------------------------------------
     # Trades
     # -----------------------------------------------------------------------
 
@@ -561,6 +645,20 @@ class AsyncTradingGateway:
             ws_url=ws_url,
             api_key=self._api_key,
         )
+
+
+def _to_decimal(value: str | float | Decimal, *, field: str) -> Decimal:
+    """Coerce a user-supplied numeric value to ``Decimal``.
+
+    Goes via ``str()`` so a float input doesn't carry binary-float noise —
+    ``Decimal(0.1)`` is ``0.1000000000000000055...`` but ``Decimal("0.1")`` is
+    exact. Raises ``ValueError`` (not the bare ``InvalidOperation``) so callers
+    see a consistent, field-labelled error.
+    """
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as err:
+        raise ValueError(f"{field} is not a valid number: {value!r}") from err
 
 
 def _backoff(attempt: int) -> float:

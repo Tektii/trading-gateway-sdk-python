@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -84,6 +85,26 @@ def test_sync_get_quote(respx_mock: respx.MockRouter) -> None:
     gw = TradingGateway()
     quote = gw.get_quote("AAPL")
     assert isinstance(quote, Quote)
+
+
+@respx.mock(base_url="http://localhost:8080")
+def test_sync_quantity_for_notional(respx_mock: respx.MockRouter) -> None:
+    """Sync wrapper mirrors the async sizing helper end-to-end."""
+    respx_mock.get("/v1/quotes/AAPL").mock(return_value=httpx.Response(200, json=SAMPLE_QUOTE))
+    gw = TradingGateway()
+    qty = gw.quantity_for_notional("AAPL", notional="5000")
+    mid = (Decimal("185.10") + Decimal("185.15")) / 2
+    assert qty == Decimal("5000") / mid
+
+
+@respx.mock(base_url="http://localhost:8080")
+def test_sync_quantity_for_equity_fraction(respx_mock: respx.MockRouter) -> None:
+    respx_mock.get("/v1/account").mock(return_value=httpx.Response(200, json=SAMPLE_ACCOUNT))
+    respx_mock.get("/v1/quotes/AAPL").mock(return_value=httpx.Response(200, json=SAMPLE_QUOTE))
+    gw = TradingGateway()
+    qty = gw.quantity_for_notional("AAPL", equity_fraction=0.10)
+    mid = (Decimal("185.10") + Decimal("185.15")) / 2
+    assert qty == (Decimal("10500.00") * Decimal("0.10")) / mid
 
 
 @respx.mock(base_url="http://localhost:8080")

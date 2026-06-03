@@ -695,3 +695,114 @@ async def test_context_manager(respx_mock: respx.MockRouter) -> None:
     async with AsyncTradingGateway() as gw:
         account = await gw.get_account()
     assert account.balance == "10000.00"
+
+
+# -----------------------------------------------------------------------
+# Sizing helper: quantity_for_notional
+# -----------------------------------------------------------------------
+
+# SAMPLE_QUOTE has bid 185.10 / ask 185.15 -> midpoint 185.125.
+_MID = (Decimal("185.10") + Decimal("185.15")) / 2
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_quantity_for_notional_sizes_at_quote_midpoint(
+    respx_mock: respx.MockRouter,
+) -> None:
+    quote_route = respx_mock.get("/v1/quotes/AAPL").mock(
+        return_value=httpx.Response(200, json=SAMPLE_QUOTE)
+    )
+    async with AsyncTradingGateway() as gw:
+        qty = await gw.quantity_for_notional("AAPL", notional="5000")
+    assert qty == Decimal("5000") / _MID
+    assert quote_route.called
+
+
+@respx.mock(base_url="http://localhost:8080", assert_all_called=False)
+async def test_quantity_for_notional_price_override_skips_quote(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """Passing price= must not hit the quote endpoint."""
+    quote_route = respx_mock.get("/v1/quotes/AAPL").mock(
+        return_value=httpx.Response(200, json=SAMPLE_QUOTE)
+    )
+    async with AsyncTradingGateway() as gw:
+        qty = await gw.quantity_for_notional("AAPL", notional="5000", price="200")
+    assert qty == Decimal("5000") / Decimal("200")
+    assert not quote_route.called
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_quantity_for_equity_fraction_sizes_off_account_equity(
+    respx_mock: respx.MockRouter,
+) -> None:
+    # SAMPLE_ACCOUNT equity is 10500.00; 10% -> 1050 notional.
+    respx_mock.get("/v1/account").mock(return_value=httpx.Response(200, json=SAMPLE_ACCOUNT))
+    quote_route = respx_mock.get("/v1/quotes/AAPL").mock(
+        return_value=httpx.Response(200, json=SAMPLE_QUOTE)
+    )
+    async with AsyncTradingGateway() as gw:
+        qty = await gw.quantity_for_notional("AAPL", equity_fraction=0.10)
+    expected = (Decimal("10500.00") * Decimal("0.10")) / _MID
+    assert qty == expected
+    assert quote_route.called
+
+
+@respx.mock(base_url="http://localhost:8080", assert_all_called=False)
+async def test_quantity_for_equity_fraction_price_override_skips_quote_only(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """equity_fraction still needs the account; price= only skips the quote."""
+    account_route = respx_mock.get("/v1/account").mock(
+        return_value=httpx.Response(200, json=SAMPLE_ACCOUNT)
+    )
+    quote_route = respx_mock.get("/v1/quotes/AAPL").mock(
+        return_value=httpx.Response(200, json=SAMPLE_QUOTE)
+    )
+    async with AsyncTradingGateway() as gw:
+        qty = await gw.quantity_for_notional("AAPL", equity_fraction="0.10", price="200")
+    assert qty == (Decimal("10500.00") * Decimal("0.10")) / Decimal("200")
+    assert account_route.called
+    assert not quote_route.called
+
+
+async def test_quantity_for_notional_requires_exactly_one_target() -> None:
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(ValueError, match="exactly one"):
+            await gw.quantity_for_notional("AAPL", price="200")
+        with pytest.raises(ValueError, match="exactly one"):
+            await gw.quantity_for_notional(
+                "AAPL", notional="5000", equity_fraction=0.1, price="200"
+            )
+
+
+async def test_quantity_for_notional_rejects_nonpositive_notional() -> None:
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(ValueError, match="positive"):
+            await gw.quantity_for_notional("AAPL", notional="0", price="200")
+        with pytest.raises(ValueError, match="positive"):
+            await gw.quantity_for_notional("AAPL", notional="-100", price="200")
+
+
+async def test_quantity_for_notional_rejects_nonpositive_fraction() -> None:
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(ValueError, match="positive"):
+            await gw.quantity_for_notional("AAPL", equity_fraction=0, price="200")
+
+
+async def test_quantity_for_notional_rejects_nonpositive_price() -> None:
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(ValueError, match="positive"):
+            await gw.quantity_for_notional("AAPL", notional="5000", price="0")
+
+
+async def test_quantity_for_notional_rejects_non_numeric_inputs() -> None:
+    """Garbage user input fails with a field-labelled ValueError, not a bare
+    InvalidOperation."""
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(ValueError, match="notional is not a valid number"):
+            await gw.quantity_for_notional("AAPL", notional="abc", price="200")
+        with pytest.raises(ValueError, match="price is not a valid number"):
+            await gw.quantity_for_notional("AAPL", notional="5000", price="abc")
+        with pytest.raises(ValueError, match="equity_fraction is not a valid number"):
+            await gw.quantity_for_notional("AAPL", equity_fraction="abc", price="200")
