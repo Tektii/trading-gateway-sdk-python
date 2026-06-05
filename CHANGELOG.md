@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0](https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.7.0...v1.8.0) (2026-06-05)
+
+
+### Features
+
+* surface financing WebSocket events ([#14](https://github.com/Tektii/trading-gateway-sdk-python/issues/14)) ([b5306d2](https://github.com/Tektii/trading-gateway-sdk-python/commit/b5306d22d87d97c4972105655393d057bb0c4761))
+
 ## [Unreleased]
 
 ## [1.7.0] — 2026-06-03
