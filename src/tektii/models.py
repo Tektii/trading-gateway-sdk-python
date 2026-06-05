@@ -181,6 +181,14 @@ class ErrorEvent(BaseEvent):
     details: Any | None = None
 
 
+class FinancingEvent(BaseEvent):
+    type: Literal["financing"] = "financing"
+    # Financing amount in the account home currency; negative = a charge.
+    # A wire string like every other financial value (rust_decimal on the gateway).
+    amount: str
+    symbol: str
+
+
 def _get_event_type(data: Any) -> str:
     value = data.get("type", "") if isinstance(data, dict) else getattr(data, "type", "")
     return str(value) if value is not None else ""
@@ -198,7 +206,8 @@ GatewayEvent = Annotated[
     | Annotated[ConnectionEvent, Tag("connection")]
     | Annotated[DataStalenessEvent, Tag("data_staleness")]
     | Annotated[RateLimitEvent, Tag("rate_limit")]
-    | Annotated[ErrorEvent, Tag("error")],
+    | Annotated[ErrorEvent, Tag("error")]
+    | Annotated[FinancingEvent, Tag("financing")],
     Discriminator(_get_event_type),
 ]
 
@@ -264,5 +273,6 @@ __all__ = [
     "DataStalenessEvent",
     "RateLimitEvent",
     "ErrorEvent",
+    "FinancingEvent",
     "GatewayEvent",
 ]
