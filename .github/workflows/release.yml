@@ -45,7 +45,13 @@ concurrency:
 jobs:
   # ---------------------------------------------------------------------------
   # 1. Quality gate — lint, format, type-check, and full test matrix.
-  #    Mirrors ci.yml so a tag push cannot skip the checks that main enforces.
+  #    Mirrors the per-commit checks ci.yml enforces on main, minus the OpenAPI
+  #    drift check. Drift is a main-branch invariant (ci.yml's openapi-drift job
+  #    gates every push/PR), and it re-derives models from the *live* gateway
+  #    spec. A tag is immutable: re-checking its frozen models against a gateway
+  #    that has moved on would fail releases for reasons unrelated to the tagged
+  #    code. The models shipped here are exactly those that passed drift on main
+  #    when the release commit landed, so the check belongs in CI, not release.
   # ---------------------------------------------------------------------------
   quality:
     name: quality (${{ matrix.python-version }})
@@ -76,9 +82,6 @@ jobs:
 
       - name: Type check (mypy)
         run: uv run mypy src/
-
-      - name: Check generated models match gateway OpenAPI spec
-        run: ./scripts/generate.sh --check
 
       - name: Test (pytest)
         run: uv run pytest --cov --cov-report=term-missing --cov-fail-under=85
