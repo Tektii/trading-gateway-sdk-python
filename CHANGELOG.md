@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0](https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.7.0...v1.8.0) (2026-06-05)
+
+
+### Features
+
+* asynchronous gateway REST client ([32cce38](https://github.com/Tektii/trading-gateway-sdk-python/commit/32cce380efc4e8607ffc99b00b53530700432599))
+* **client:** add quantity_for_notional sizing helper ([5099a1b](https://github.com/Tektii/trading-gateway-sdk-python/commit/5099a1bb82255f339efcf453259f798bff269eb3))
+* **client:** add quantity_for_notional sizing helper ([461496b](https://github.com/Tektii/trading-gateway-sdk-python/commit/461496b9a11f8cea4858d385cf25c78943a2a1ca))
+* internal HTTP transport helpers ([a84cc11](https://github.com/Tektii/trading-gateway-sdk-python/commit/a84cc11757acb9733c21943d2dfefff8e60f8e3c))
+* **stream:** handle clean end-of-backtest terminal with optional hook ([fadb522](https://github.com/Tektii/trading-gateway-sdk-python/commit/fadb522210b47d17246abef4b1fe31d8d25b5fe0))
+* **stream:** handle clean end-of-backtest terminal with optional hook ([dee18ad](https://github.com/Tektii/trading-gateway-sdk-python/commit/dee18adf77ff7e86e7c7d31106f6b5c030e70499))
+* synchronous gateway client wrapper ([987d145](https://github.com/Tektii/trading-gateway-sdk-python/commit/987d145d16c0272ad1c776b82b75f92de9a5f8d5))
+* typed exception hierarchy ([a70826e](https://github.com/Tektii/trading-gateway-sdk-python/commit/a70826e5943929af60a773b48de1b2ee841c8a6c))
+* WebSocket event models and model re-exports ([22c1497](https://github.com/Tektii/trading-gateway-sdk-python/commit/22c1497b0e94ff687092de3f20f505d3d11eb5c7))
+* WebSocket event stream with auto-ACK and package exports ([9389880](https://github.com/Tektii/trading-gateway-sdk-python/commit/93898809ad81d2e17f30d031b76a18804ed0d36a))
+
+
+### Bug Fixes
+
+* **stream:** always send event_ack so backtests don't stall (TEK-309) ([e63228f](https://github.com/Tektii/trading-gateway-sdk-python/commit/e63228f6092e93575e5ceac8b89a5f8d808e39e5))
+* **stream:** always send event_ack so backtests don't stall (TEK-309) ([910db2c](https://github.com/Tektii/trading-gateway-sdk-python/commit/910db2c78f8d3a4162e883b127feba5f8b1ad663))
+
 ## [Unreleased]
 
 ## [1.7.0] — 2026-06-03
