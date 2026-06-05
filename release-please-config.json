@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "simple",
+  "include-component-in-tag": false,
+  "tag-prefix": "v",
+  "draft": false,
+  "prerelease": false,
+  "packages": {
+    ".": {
+      "package-name": "tektii",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        "src/tektii/_version.py"
+      ]
+    }
+  }
+}
