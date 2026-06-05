@@ -15,6 +15,7 @@ from tektii.models import (
     DataStalenessEvent,
     DetailedHealthStatus,
     ErrorEvent,
+    FinancingEvent,
     GatewayEvent,
     ModifyOrderResult,
     Order,
@@ -322,6 +323,19 @@ def test_error_event() -> None:
     assert isinstance(event, ErrorEvent)
     assert event.code == "INTERNAL_ERROR"
     assert event.message == "Something went wrong"
+
+
+def test_financing_event() -> None:
+    data = {
+        "type": "financing",
+        "timestamp": "2025-01-15T10:30:00Z",
+        "amount": "-12.34",
+        "symbol": "EURUSD",
+    }
+    event = event_adapter.validate_python(data)
+    assert isinstance(event, FinancingEvent)
+    assert event.amount == "-12.34"
+    assert event.symbol == "EURUSD"
 
 
 def test_event_with_event_id() -> None:
