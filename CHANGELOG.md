@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0](https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.8.0...v1.9.0) (2026-06-11)
+
+
+### Features
+
+* **client:** read TEKTII_-prefixed gateway env vars with legacy fallback ([#18](https://github.com/Tektii/trading-gateway-sdk-python/issues/18)) ([1dd7f6f](https://github.com/Tektii/trading-gateway-sdk-python/commit/1dd7f6f278ce33cbf02b4206f12f1f6f99301d2c))
+
 ## [1.8.0](https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.7.0...v1.8.0) (2026-06-05)
 
 
