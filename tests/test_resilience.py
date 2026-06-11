@@ -266,6 +266,70 @@ async def test_base_url_env_var_fallback(monkeypatch: pytest.MonkeyPatch) -> Non
         await gw.close()
 
 
+async def test_base_url_defaults_to_localhost() -> None:
+    gw = AsyncTradingGateway()
+    try:
+        assert gw.base_url == "http://localhost:8080"
+    finally:
+        await gw.close()
+
+
+async def test_base_url_prefixed_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEKTII_TRADING_GATEWAY_URL", "https://gw.prefixed.example.com")
+    gw = AsyncTradingGateway()
+    try:
+        assert gw.base_url == "https://gw.prefixed.example.com"
+    finally:
+        await gw.close()
+
+
+async def test_base_url_prefixed_wins_over_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEKTII_TRADING_GATEWAY_URL", "https://gw.prefixed.example.com")
+    monkeypatch.setenv("TRADING_GATEWAY_URL", "https://gw.legacy.example.com")
+    gw = AsyncTradingGateway()
+    try:
+        assert gw.base_url == "https://gw.prefixed.example.com"
+    finally:
+        await gw.close()
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_api_key_prefixed_env_var(
+    respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEKTII_TRADING_GATEWAY_API_KEY", "tk_prefixed_value")
+    route = respx_mock.get("/v1/account").mock(
+        return_value=httpx.Response(200, json=SAMPLE_ACCOUNT)
+    )
+    async with AsyncTradingGateway() as gw:
+        await gw.get_account()
+    assert route.calls[0].request.headers.get("authorization") == "Bearer tk_prefixed_value"
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_api_key_prefixed_wins_over_legacy(
+    respx_mock: respx.MockRouter, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEKTII_TRADING_GATEWAY_API_KEY", "tk_prefixed_value")
+    monkeypatch.setenv("TRADING_GATEWAY_API_KEY", "tk_legacy_value")
+    route = respx_mock.get("/v1/account").mock(
+        return_value=httpx.Response(200, json=SAMPLE_ACCOUNT)
+    )
+    async with AsyncTradingGateway() as gw:
+        await gw.get_account()
+    assert route.calls[0].request.headers.get("authorization") == "Bearer tk_prefixed_value"
+
+
+def test_sync_prefixed_env_vars_win_over_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TEKTII_TRADING_GATEWAY_URL", "https://gw.prefixed.example.com")
+    monkeypatch.setenv("TRADING_GATEWAY_URL", "https://gw.legacy.example.com")
+    monkeypatch.setenv("TEKTII_TRADING_GATEWAY_API_KEY", "tk_prefixed_value")
+    monkeypatch.setenv("TRADING_GATEWAY_API_KEY", "tk_legacy_value")
+    gw = TradingGateway()
+    assert gw._base_url == "https://gw.prefixed.example.com"
+    assert gw._api_key == "tk_prefixed_value"
+
+
 # ---------------------------------------------------------------------------
 # Naive datetime rejection
 # ---------------------------------------------------------------------------

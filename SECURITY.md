@@ -79,7 +79,8 @@ error payloads before they leave the process.
 
 ## Credentials
 
-The SDK reads the API key from the `TRADING_GATEWAY_API_KEY` environment variable
+The SDK reads the API key from the `TEKTII_TRADING_GATEWAY_API_KEY` environment
+variable (falling back to the legacy `TRADING_GATEWAY_API_KEY` name)
 when none is passed to the constructor, and refuses to transmit it over
 plain `http://` to a non-local host. Do not override this check unless you
 have audited the network path (private VPN, loopback proxy, etc.) — the
