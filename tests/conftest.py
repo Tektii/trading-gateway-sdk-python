@@ -2,6 +2,23 @@
 
 from __future__ import annotations
 
+import pytest
+
+_GATEWAY_ENV_VARS = (
+    "TEKTII_TRADING_GATEWAY_URL",
+    "TEKTII_TRADING_GATEWAY_API_KEY",
+    "TRADING_GATEWAY_URL",
+    "TRADING_GATEWAY_API_KEY",
+)
+
+
+@pytest.fixture(autouse=True)
+def _clean_gateway_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unit tests must not inherit gateway config from the host environment."""
+    for name in _GATEWAY_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
 # Sample JSON responses matching the gateway's API
 SAMPLE_ACCOUNT = {
     "balance": "10000.00",

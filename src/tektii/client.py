@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import contextlib
-import os
 import threading
 from collections.abc import Callable, Coroutine
 from datetime import datetime
@@ -24,10 +23,10 @@ import httpx
 
 from tektii._http import http_to_ws_url
 from tektii.async_client import (
-    ENV_API_KEY,
-    ENV_BASE_URL,
     AsyncTradingGateway,
     _check_credentials_over_plaintext,
+    _env_api_key,
+    _env_base_url,
 )
 from tektii.errors import TektiiError
 from tektii.models import (
@@ -70,9 +69,10 @@ class TradingGateway:
     :class:`AsyncTradingGateway` instead.
 
     Args:
-        base_url: Gateway base URL. Falls back to ``$TRADING_GATEWAY_URL``
-            then ``http://localhost:8080``.
-        api_key: Bearer API key. Falls back to ``$TRADING_GATEWAY_API_KEY``.
+        base_url: Gateway base URL. Falls back to ``$TEKTII_TRADING_GATEWAY_URL``,
+            then ``$TRADING_GATEWAY_URL``, then ``http://localhost:8080``.
+        api_key: Bearer API key. Falls back to ``$TEKTII_TRADING_GATEWAY_API_KEY``,
+            then ``$TRADING_GATEWAY_API_KEY``.
         timeout: HTTP timeout as float or ``httpx.Timeout``.
         headers: Extra headers to merge with SDK defaults.
         max_retries: Retry idempotent requests on transient failures.
@@ -91,10 +91,8 @@ class TradingGateway:
     ) -> None:
         # Resolve config up front so the user sees env-var and plaintext-HTTP
         # errors at TradingGateway() construction time, not on first API call.
-        self._base_url = (
-            base_url or os.environ.get(ENV_BASE_URL) or "http://localhost:8080"
-        ).rstrip("/")
-        self._api_key = api_key if api_key is not None else os.environ.get(ENV_API_KEY)
+        self._base_url = (base_url or _env_base_url() or "http://localhost:8080").rstrip("/")
+        self._api_key = api_key if api_key is not None else _env_api_key()
         _check_credentials_over_plaintext(
             self._base_url, self._api_key, allow_insecure=allow_insecure
         )

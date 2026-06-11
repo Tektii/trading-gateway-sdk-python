@@ -40,9 +40,22 @@ if TYPE_CHECKING:
 _LOCALHOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 # Env var names — documented in README and SECURITY.md. Keeping them as
-# module-level constants so users grep easily.
+# module-level constants so users grep easily. The TEKTII_-prefixed names are
+# the platform's reserved namespace and win over the legacy names; both are
+# read so existing deployments keep working through the rename.
+ENV_API_KEY_PREFIXED = "TEKTII_TRADING_GATEWAY_API_KEY"
+ENV_BASE_URL_PREFIXED = "TEKTII_TRADING_GATEWAY_URL"
 ENV_API_KEY = "TRADING_GATEWAY_API_KEY"
 ENV_BASE_URL = "TRADING_GATEWAY_URL"
+
+
+def _env_base_url() -> str | None:
+    return os.environ.get(ENV_BASE_URL_PREFIXED) or os.environ.get(ENV_BASE_URL)
+
+
+def _env_api_key() -> str | None:
+    return os.environ.get(ENV_API_KEY_PREFIXED) or os.environ.get(ENV_API_KEY)
+
 
 # Default User-Agent identifies SDK traffic in gateway access logs and helps
 # OSS adoption tracking. Overridable via the ``headers`` kwarg.
@@ -101,10 +114,10 @@ class AsyncTradingGateway:
     """Async client for the Trading Gateway REST + WebSocket API.
 
     Args:
-        base_url: Gateway base URL. Falls back to ``$TRADING_GATEWAY_URL``,
-            then ``http://localhost:8080``.
+        base_url: Gateway base URL. Falls back to ``$TEKTII_TRADING_GATEWAY_URL``,
+            then ``$TRADING_GATEWAY_URL``, then ``http://localhost:8080``.
         api_key: Bearer API key for authentication. Falls back to
-            ``$TRADING_GATEWAY_API_KEY``.
+            ``$TEKTII_TRADING_GATEWAY_API_KEY``, then ``$TRADING_GATEWAY_API_KEY``.
         timeout: HTTP request timeout as a float (applied to all phases) or
             an ``httpx.Timeout`` for granular connect/read/write/pool control.
         headers: Extra headers to merge with SDK defaults (User-Agent, auth).
@@ -125,10 +138,8 @@ class AsyncTradingGateway:
         max_retries: int = 2,
         allow_insecure: bool = False,
     ) -> None:
-        resolved_url = (base_url or os.environ.get(ENV_BASE_URL) or "http://localhost:8080").rstrip(
-            "/"
-        )
-        resolved_key = api_key if api_key is not None else os.environ.get(ENV_API_KEY)
+        resolved_url = (base_url or _env_base_url() or "http://localhost:8080").rstrip("/")
+        resolved_key = api_key if api_key is not None else _env_api_key()
 
         self.base_url = resolved_url
         self._api_key = resolved_key

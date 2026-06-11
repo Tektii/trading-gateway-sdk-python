@@ -88,8 +88,10 @@ environment variables:
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `TRADING_GATEWAY_API_KEY` | Bearer token sent in the `Authorization` header | _unset_ |
-| `TRADING_GATEWAY_URL` | Gateway base URL | `http://localhost:8080` |
+| `TEKTII_TRADING_GATEWAY_API_KEY` | Bearer token sent in the `Authorization` header | _unset_ |
+| `TEKTII_TRADING_GATEWAY_URL` | Gateway base URL | `http://localhost:8080` |
+| `TRADING_GATEWAY_API_KEY` | Legacy name for the bearer token, read when the `TEKTII_`-prefixed name is unset | _unset_ |
+| `TRADING_GATEWAY_URL` | Legacy name for the gateway base URL, read when the `TEKTII_`-prefixed name is unset | `http://localhost:8080` |
 
 ```python
 # Constructor (highest precedence)
@@ -97,8 +99,8 @@ gw = TradingGateway(api_key="tk_live_…", base_url="https://gw.example.com")
 
 # Environment (fallback)
 import os
-os.environ["TRADING_GATEWAY_API_KEY"] = "tk_live_…"
-gw = TradingGateway()  # picks up TRADING_GATEWAY_API_KEY automatically
+os.environ["TEKTII_TRADING_GATEWAY_API_KEY"] = "tk_live_…"
+gw = TradingGateway()  # picks up TEKTII_TRADING_GATEWAY_API_KEY automatically
 ```
 
 **Never hardcode a production API key in committed source.** Use your
@@ -165,8 +167,8 @@ from tektii import TradingGateway, AsyncTradingGateway
 
 # Sync (notebooks, simple scripts, production too)
 gw = TradingGateway(
-    base_url="http://localhost:8080",  # or $TRADING_GATEWAY_URL
-    api_key=None,                       # or $TRADING_GATEWAY_API_KEY
+    base_url="http://localhost:8080",  # or $TEKTII_TRADING_GATEWAY_URL
+    api_key=None,                       # or $TEKTII_TRADING_GATEWAY_API_KEY
     timeout=30.0,                       # float or httpx.Timeout
     headers={"X-Tenant": "acme"},       # extra headers (optional)
     max_retries=2,                      # retry idempotent requests on transient failure
