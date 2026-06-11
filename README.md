@@ -9,7 +9,7 @@ Python SDK for the [Trading Gateway](https://github.com/Tektii/trading-gateway) 
 
 Write your strategy once, run it against Alpaca, Binance, Oanda, Saxo, or the Tektii backtesting engine — zero code changes.
 
-> **Status**: v1.5.0 — Beta
+> **Status**: Beta
 
 ## Risk disclaimer
 
