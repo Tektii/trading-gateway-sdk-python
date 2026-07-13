@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1](https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.9.0...v1.9.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* **stream:** echo event_id in terminal and dropped-frame acks ([#25](https://github.com/Tektii/trading-gateway-sdk-python/issues/25)) ([442a822](https://github.com/Tektii/trading-gateway-sdk-python/commit/442a8224509f094ab12341a2ba10dd42893274da))
+
 ## [1.9.0](https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.8.0...v1.9.0) (2026-06-11)
 
 
