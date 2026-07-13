@@ -1,12 +1,12 @@
 """WebSocket event streaming with automatic reconnection.
 
 The SDK sends an ``event_ack`` frame after the user's iterator body runs for
-*every* yielded event. The Tektii backtest gateway uses auto-correlation —
-any strategy ACK drains every engine event already broadcast — so the
-strategy never has to track engine ``event_id`` values. ``event_id`` is
-forwarded when the gateway includes it (engine path) and omitted otherwise
-(live and mock backends, which do not register an ACK bridge and ignore the
-frame). Same strategy code runs unchanged against any backend.
+*every* yielded event, echoing that event's ``event_id`` when present. The
+gateway's ACK contract is strict: an ``event_ack`` releases exactly the
+``event_id``s named in ``events_processed`` — an empty list releases
+nothing. ``event_id`` is present only from the backtest engine; live and
+mock backends omit it and ignore the ACK frame entirely. Same strategy code
+runs unchanged against any backend.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import json
 import logging
 import queue
 import random
+import re
 import threading
 import time
 import warnings
@@ -56,6 +57,26 @@ _WS_CLOSE_TIMEOUT = 5.0
 _MAX_BACKOFF_EXPONENT = 8  # 2**8 = 256s pre-cap
 
 _LOCALHOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+_EVENT_ID_PATTERN = re.compile(r'"event_id"\s*:\s*"([^"]*)"')
+
+
+def _best_effort_event_id(raw: str | bytes, data: Any = None) -> str | None:
+    """Recover a top-level ``event_id`` from a frame the SDK is dropping.
+
+    Used on the tolerant-parsing drop paths — malformed JSON (no parsed
+    ``data`` available, so a regex over the raw text) and an unrecognised
+    event type (``data`` is a dict; read the key directly). The gateway's
+    strict ACK contract requires every id-bearing frame to be acked, even
+    ones the SDK can't fully parse, or the backtest engine starves toward
+    its consecutive-timeout halt.
+    """
+    if isinstance(data, dict):
+        event_id = data.get("event_id")
+        return event_id if isinstance(event_id, str) else None
+    text = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else raw
+    match = _EVENT_ID_PATTERN.search(text)
+    return match.group(1) if match else None
 
 
 def _warn_if_ws_credentials_over_plaintext(ws_url: str, api_key: str | None) -> None:
@@ -112,11 +133,12 @@ class AsyncEventStream:
                         ...
 
     Every yielded event is acknowledged *after* the user's iterator body
-    runs. The Tektii backtest gateway uses auto-correlation (any strategy
-    ACK drains every engine event already broadcast), so the strategy never
-    has to track engine ``event_id`` values. ``event_id`` is forwarded when
-    present and omitted otherwise; live and mock backends ignore the frame.
-    Same strategy code, any backend.
+    runs, echoing that event's ``event_id`` when present. The gateway's ACK
+    contract is strict — an ``event_ack`` releases exactly the ``event_id``s
+    it names, so a custom client must echo the id rather than send an empty
+    ack. ``event_id`` is present only from the backtest engine; live and
+    mock backends omit it and ignore the frame. Same strategy code, any
+    backend.
     """
 
     def __init__(
@@ -178,10 +200,10 @@ class AsyncEventStream:
     async def _ack(self, event_ids: list[str]) -> None:
         """Send an event_ack frame (internal).
 
-        An empty ``event_ids`` list is valid: the Tektii backtest gateway
-        drains every delivered engine event on any strategy ACK
-        (auto-correlation), so the strategy does not need to track engine
-        ids. Live and mock gateways have no ACK bridge and ignore the frame.
+        The gateway's ACK contract is strict: it releases exactly the
+        ``event_id``s named in ``events_processed``. An empty list is a
+        no-op, not a wildcard — it releases nothing. Live and mock gateways
+        have no ACK bridge and ignore the frame regardless.
         """
         if self._ws is None:
             return
@@ -210,6 +232,12 @@ class AsyncEventStream:
                 err,
             )
 
+    async def _ack_recovered_event_id(self, raw: str | bytes, data: Any = None) -> None:
+        """Ack a dropped frame's ``event_id`` if one can be recovered."""
+        event_id = _best_effort_event_id(raw, data)
+        if event_id is not None:
+            await self._try_flush_ack([event_id])
+
     async def _handle_terminal(self, event: BacktestCompleteEvent) -> None:
         """Process a clean end-of-backtest terminal.
 
@@ -223,7 +251,7 @@ class AsyncEventStream:
         """
         self._terminal_event = event
         try:
-            await self._ack([])
+            await self._ack([event.event_id] if event.event_id is not None else [])
         except Exception as err:  # noqa: BLE001 — best-effort optimisation
             # Logged at debug, not warning: the flush-ACK is a latency
             # optimisation, not correctness — the engine tears down anyway
@@ -255,6 +283,7 @@ class AsyncEventStream:
                             "Dropping WebSocket frame with malformed JSON: %s",
                             err,
                         )
+                        await self._ack_recovered_event_id(raw)
                         continue
                     try:
                         event = _event_adapter.validate_python(data)
@@ -264,6 +293,7 @@ class AsyncEventStream:
                             data.get("type") if isinstance(data, dict) else None,
                             err,
                         )
+                        await self._ack_recovered_event_id(raw, data)
                         continue
 
                     # Handle ping internally — never yield to user.
@@ -285,10 +315,10 @@ class AsyncEventStream:
                     # user's loop body — so the backtest engine can safely
                     # block on ACK before sending the next event.
                     #
-                    # The ACK fires regardless of ``event_id`` presence:
-                    # the Tektii backtest gateway strips ``event_id`` from
-                    # the wire format and uses auto-correlation, while
-                    # live/mock backends ignore the frame entirely.
+                    # The ACK fires regardless of ``event_id`` presence,
+                    # echoing it when present: the gateway's strict contract
+                    # releases exactly the ids named, and live/mock backends
+                    # ignore the frame entirely either way.
                     try:
                         yield event
                     finally:
@@ -471,8 +501,8 @@ class SyncEventStream:
     def __iter__(self) -> Iterator[GatewayEvent]:
         # ``None`` = no event yielded yet; ``list`` = the user's for-body has
         # run for an event and we owe an ACK. The list carries the engine's
-        # ``event_id`` if present, or is empty for events without one (the
-        # gateway's auto-correlation drains all delivered events on any ACK).
+        # ``event_id`` if present, or is empty for events without one — the
+        # gateway's strict contract releases exactly the ids an ack names.
         pending_ack: list[str] | None = None
         try:
             while True:

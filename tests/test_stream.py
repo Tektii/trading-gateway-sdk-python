@@ -438,6 +438,185 @@ async def test_ack_without_event_id_sends_empty_list() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tolerant parsing — a dropped frame must still be acked when an event_id
+# can be recovered from it, per the gateway's strict event-id ACK contract.
+# ---------------------------------------------------------------------------
+
+
+async def test_unrecognised_event_type_with_event_id_still_acked() -> None:
+    """A frame that parses as JSON but fails pydantic validation (unknown
+    ``type``) must still produce an ack naming its ``event_id`` — otherwise a
+    schema mismatch (e.g. an SDK older than a new event type) starves the
+    backtest engine, which requires every frame it sent to be acked.
+    """
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send(
+            json.dumps(
+                {
+                    "type": "some_future_event_type",
+                    "event_id": "evt_bogus_001",
+                    "timestamp": "2025-01-15T10:30:00Z",
+                }
+            )
+        )
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            received.append(json.loads(raw))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert events == []
+    acks = [m for m in received if m.get("type") == "event_ack"]
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == ["evt_bogus_001"]
+
+
+async def test_unrecognised_event_type_without_event_id_sends_no_ack() -> None:
+    """An unrecognised event with no ``event_id`` must not produce a spurious
+    ack — there is nothing to release under the strict contract.
+    """
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send(
+            json.dumps(
+                {
+                    "type": "some_future_event_type",
+                    "timestamp": "2025-01-15T10:30:00Z",
+                }
+            )
+        )
+        await ws.send(json.dumps(_sample_candle("evt_after_bogus")))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            while True:
+                raw = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                received.append(json.loads(raw))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(events) == 1
+    acks = [m for m in received if m.get("type") == "event_ack"]
+    # Only the trailing candle's ack — none for the bogus, id-less frame.
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == ["evt_after_bogus"]
+
+
+async def test_malformed_json_with_recoverable_event_id_still_acked() -> None:
+    """A frame that fails JSON parsing entirely but still carries a
+    recognisable ``event_id`` key must produce a best-effort ack naming it.
+    """
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send('{"type": "candle", "event_id": "evt_malformed_001", "bar": {')
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            received.append(json.loads(raw))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert events == []
+    acks = [m for m in received if m.get("type") == "event_ack"]
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == ["evt_malformed_001"]
+
+
+async def test_malformed_json_bytes_frame_with_recoverable_event_id_still_acked() -> None:
+    """Same as above, but sent as a binary WebSocket frame (``bytes``), not
+    text — ``websockets`` can deliver either, and the recovery regex must
+    decode bytes before matching rather than raising ``TypeError``.
+    """
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send(b'{"type": "candle", "event_id": "evt_malformed_bytes_001", "bar": {')
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            received.append(json.loads(raw))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert events == []
+    acks = [m for m in received if m.get("type") == "event_ack"]
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == ["evt_malformed_bytes_001"]
+
+
+async def test_malformed_json_without_recoverable_event_id_sends_no_ack() -> None:
+    """Malformed JSON with no recoverable ``event_id`` must not crash and
+    must not produce a spurious ack.
+    """
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send("{not json at all")
+        await ws.send(json.dumps(_sample_candle("evt_after_malformed")))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            while True:
+                raw = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                received.append(json.loads(raw))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(events) == 1
+    acks = [m for m in received if m.get("type") == "event_ack"]
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == ["evt_after_malformed"]
+
+
+# ---------------------------------------------------------------------------
 # Multiple events in sequence
 # ---------------------------------------------------------------------------
 
@@ -893,6 +1072,35 @@ async def test_backtest_complete_sends_flush_ack() -> None:
     assert acks[0]["events_processed"] == []
 
 
+async def test_backtest_complete_with_event_id_echoes_it_in_flush_ack() -> None:
+    """When the terminal carries an ``event_id``, the flush-ack must echo it
+    — the gateway's strict ACK contract releases exactly the ids it names,
+    so an empty ack for an id-bearing terminal would starve engine teardown.
+    """
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send(json.dumps({**_backtest_complete(), "event_id": "evt_99"}))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            received.append(json.loads(raw))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for _event in stream:
+                pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    acks = [m for m in received if m.get("type") == "event_ack"]
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == ["evt_99"]
+
+
 async def test_backtest_complete_fires_hook_once() -> None:
     """The optional hook fires exactly once with the parsed terminal event."""
     calls: list[BacktestCompleteEvent] = []
@@ -1244,3 +1452,35 @@ async def test_sync_backtest_complete_sends_flush_ack() -> None:
     acks = [m for m in received if m.get("type") == "event_ack"]
     assert len(acks) == 1
     assert acks[0]["events_processed"] == []
+
+
+async def test_sync_backtest_complete_with_event_id_echoes_it_in_flush_ack() -> None:
+    """The sync wrapper shares ``_handle_terminal`` with the async stream, so
+    it must also echo the terminal's ``event_id`` in its flush-ack.
+    """
+    received: list[dict] = []
+
+    async def handler(ws):
+        await ws.send(json.dumps({**_backtest_complete(), "event_id": "evt_sync_99"}))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            received.append(json.loads(raw))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+
+    def run_sync_iter() -> None:
+        stream = SyncEventStream(ws_url=url, reconnect=False)
+        with stream:
+            for _event in stream:
+                pass
+
+    try:
+        await asyncio.to_thread(run_sync_iter)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    acks = [m for m in received if m.get("type") == "event_ack"]
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == ["evt_sync_99"]
