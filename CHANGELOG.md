@@ -21,6 +21,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The end-of-backtest flush-ack now echoes the terminal event's `event_id`
+  when present, instead of always sending an empty ack. The gateway's ACK
+  contract releases exactly the ids an ack names, so an empty ack for an
+  id-bearing terminal previously left the engine waiting out its teardown
+  ack-timeout on every run.
+- A WebSocket frame dropped for malformed JSON or an unrecognised event type
+  is now acked when a top-level `event_id` can be recovered from it. In
+  backtest mode, every engine-paced frame must be acked or the engine stalls
+  toward its consecutive-timeout halt; this turns a schema mismatch into a
+  logged skip instead of a run-killing stall.
+
+### Changed
+
+- Docstrings describing the ACK contract no longer advertise "empty ack ⇒
+  gateway auto-correlation drains everything". The gateway's contract is
+  strict: an `event_ack` releases exactly the `event_id`s named in
+  `events_processed`, and an empty list is a no-op, not a wildcard. A custom
+  client relying on the old behaviour to pace engine-driven events will
+  stall its backtests under the new contract.
+
 ## [1.7.0] — 2026-06-03
 
 ### Added
