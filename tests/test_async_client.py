@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -24,6 +25,7 @@ from tektii.errors import (
     RateLimitedError,
     ServerError,
     TektiiError,
+    UnsupportedOrderTypeError,
 )
 from tektii.models import (
     Account,
@@ -56,6 +58,7 @@ from .conftest import (
     SAMPLE_POSITION,
     SAMPLE_QUOTE,
     SAMPLE_TRADE,
+    mock_capabilities,
 )
 
 
@@ -149,6 +152,7 @@ async def test_get_account(respx_mock: respx.MockRouter) -> None:
 
 @respx.mock(base_url="http://localhost:8080")
 async def test_submit_order(respx_mock: respx.MockRouter) -> None:
+    mock_capabilities(respx_mock)
     respx_mock.post("/v1/orders").mock(return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE))
     async with AsyncTradingGateway() as gw:
         handle = await gw.submit_order("AAPL", "buy", "10")
@@ -158,6 +162,7 @@ async def test_submit_order(respx_mock: respx.MockRouter) -> None:
 
 @respx.mock(base_url="http://localhost:8080")
 async def test_submit_order_with_decimal_quantity(respx_mock: respx.MockRouter) -> None:
+    mock_capabilities(respx_mock)
     route = respx_mock.post("/v1/orders").mock(
         return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
     )
@@ -172,6 +177,7 @@ async def test_submit_order_with_decimal_quantity(respx_mock: respx.MockRouter) 
 
 @respx.mock(base_url="http://localhost:8080")
 async def test_submit_order_with_bracket(respx_mock: respx.MockRouter) -> None:
+    mock_capabilities(respx_mock)
     route = respx_mock.post("/v1/orders").mock(
         return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
     )
@@ -240,6 +246,7 @@ async def test_submit_order_full_parameter_matrix(
     """Verify that every optional kwarg lands in the JSON body with the
     correct serialisation (Decimals → strings, booleans as-is, None omitted).
     """
+    mock_capabilities(respx_mock)
     route = respx_mock.post("/v1/orders").mock(
         return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
     )
@@ -287,6 +294,151 @@ async def test_submit_order_full_parameter_matrix(
         "leverage": "2",
         "margin_mode": "ISOLATED",
     }
+
+
+@respx.mock(base_url="http://localhost:8080", assert_all_called=False)
+async def test_submit_order_rejects_type_the_provider_does_not_support(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """A type the enum allows but the provider rejects must fail client-side.
+
+    ``TRAILING_STOP`` is a valid ``OrderType``, so a strategy type-checks
+    against it and then fails deep inside the engine. Catch it before the
+    order leaves the SDK.
+    """
+    mock_capabilities(respx_mock, order_types=["MARKET", "LIMIT", "STOP"])
+    route = respx_mock.post("/v1/orders").mock(
+        return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
+    )
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(UnsupportedOrderTypeError) as exc_info:
+            await gw.submit_order("AAPL", "buy", "10", "trailing_stop")
+
+    message = str(exc_info.value)
+    assert "trailing_stop" in message.lower()
+    assert "MARKET" in message and "LIMIT" in message and "STOP" in message
+    assert not route.called, "order must not be sent when the type is unsupported"
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_submit_order_allows_type_the_provider_does_support(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """Validation follows the provider, not a hardcoded list."""
+    mock_capabilities(respx_mock, order_types=["MARKET", "TRAILING_STOP"])
+    route = respx_mock.post("/v1/orders").mock(
+        return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
+    )
+    async with AsyncTradingGateway() as gw:
+        await gw.submit_order("AAPL", "buy", "10", "trailing_stop", trailing_distance="1.5")
+    assert route.called
+
+
+@respx.mock(base_url="http://localhost:8080", assert_all_called=False)
+async def test_submit_order_rejects_unknown_order_type(respx_mock: respx.MockRouter) -> None:
+    """A typo'd type is caught here too, rather than as an opaque 400."""
+    mock_capabilities(respx_mock)
+    route = respx_mock.post("/v1/orders").mock(
+        return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
+    )
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(UnsupportedOrderTypeError):
+            await gw.submit_order("AAPL", "buy", "10", "markte")
+    assert not route.called
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_submit_order_matches_order_type_case_insensitively(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """Callers pass lowercase; the wire enum is uppercase. Both must work."""
+    spellings = ["market", "MARKET", "Market"]
+    mock_capabilities(respx_mock)
+    route = respx_mock.post("/v1/orders").mock(
+        return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
+    )
+    async with AsyncTradingGateway() as gw:
+        for spelling in spellings:
+            await gw.submit_order("AAPL", "buy", "10", spelling)
+
+    # The caller's spelling is forwarded untouched — normalisation is only
+    # for the comparison, not the wire format.
+    sent = [json.loads(call.request.content)["order_type"] for call in route.calls]
+    assert sent == spellings
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_submit_order_fetches_capabilities_once(respx_mock: respx.MockRouter) -> None:
+    """Capabilities are static per connection — don't pay a round-trip per order."""
+    caps_route = mock_capabilities(respx_mock)
+    respx_mock.post("/v1/orders").mock(return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE))
+    async with AsyncTradingGateway() as gw:
+        await gw.submit_order("AAPL", "buy", "10")
+        await gw.submit_order("AAPL", "sell", "10")
+        await gw.submit_order("MSFT", "buy", "5", "limit", limit_price="400")
+    assert caps_route.call_count == 1
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_concurrent_first_submits_fetch_capabilities_once(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """A cold-start burst must not fan out into one fetch per order.
+
+    Firing several entries at once right after connecting is normal, and
+    ``respx`` resolves without a real suspension point — so a sequential
+    test cannot catch the check-then-await-then-set race. This one delays
+    the response to force the overlap.
+    """
+
+    async def slow_capabilities(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.01)
+        return httpx.Response(200, json=SAMPLE_CAPABILITIES)
+
+    caps_route = respx_mock.get("/v1/capabilities").mock(side_effect=slow_capabilities)
+    respx_mock.post("/v1/orders").mock(return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE))
+
+    async with AsyncTradingGateway() as gw:
+        await asyncio.gather(*(gw.submit_order("AAPL", "buy", "1") for _ in range(10)))
+
+    assert caps_route.call_count == 1
+
+
+@respx.mock(base_url="http://localhost:8080", assert_all_called=False)
+async def test_submit_order_blocked_when_capabilities_unavailable(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """Fail closed: no order goes out unvalidated."""
+    respx_mock.get("/v1/capabilities").mock(
+        return_value=httpx.Response(503, json={"code": "PROVIDER_UNAVAILABLE", "message": "down"})
+    )
+    route = respx_mock.post("/v1/orders").mock(
+        return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
+    )
+    async with AsyncTradingGateway(max_retries=0) as gw:
+        with pytest.raises(ProviderUnavailableError):
+            await gw.submit_order("AAPL", "buy", "10")
+    assert not route.called
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_failed_capabilities_fetch_is_not_cached(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """A failed fetch must not be cached, or one blip poisons the session."""
+    caps_route = respx_mock.get("/v1/capabilities")
+    caps_route.side_effect = [
+        httpx.Response(503, json={"code": "PROVIDER_UNAVAILABLE", "message": "down"}),
+        httpx.Response(200, json=SAMPLE_CAPABILITIES),
+    ]
+    route = respx_mock.post("/v1/orders").mock(
+        return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
+    )
+    async with AsyncTradingGateway(max_retries=0) as gw:
+        with pytest.raises(ProviderUnavailableError):
+            await gw.submit_order("AAPL", "buy", "10")
+        await gw.submit_order("AAPL", "buy", "10")
+    assert route.called
 
 
 @respx.mock(base_url="http://localhost:8080")
@@ -373,6 +525,7 @@ async def test_close_position_partial_sends_body(respx_mock: respx.MockRouter) -
     Previously `close_position()` built a body dict but never passed it to
     `_delete()`, silently turning partial closes into full closes.
     """
+    mock_capabilities(respx_mock)
     route = respx_mock.delete("/v1/positions/pos_001").mock(
         return_value=httpx.Response(200, json=SAMPLE_ORDER_HANDLE)
     )
@@ -391,6 +544,42 @@ async def test_close_position_partial_sends_body(respx_mock: respx.MockRouter) -
         "limit_price": "185.50",
         "cancel_associated_orders": True,
     }
+
+
+@respx.mock(base_url="http://localhost:8080", assert_all_called=False)
+async def test_close_position_rejects_unsupported_order_type(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """Closing is the other path that creates an order — guard it too."""
+    mock_capabilities(respx_mock, order_types=["MARKET", "LIMIT", "STOP"])
+    route = respx_mock.delete("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(200, json=SAMPLE_ORDER_HANDLE)
+    )
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(UnsupportedOrderTypeError):
+            await gw.close_position("pos_001", order_type="trailing_stop")
+    assert not route.called
+
+
+@respx.mock(base_url="http://localhost:8080", assert_all_called=False)
+async def test_close_position_without_order_type_skips_validation(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """No type named means the provider picks — nothing to validate.
+
+    Closing a position is risk-reducing, so it must not become dependent on
+    a capabilities fetch that could fail.
+    """
+    caps_route = respx_mock.get("/v1/capabilities").mock(
+        return_value=httpx.Response(503, json={"code": "PROVIDER_UNAVAILABLE", "message": "down"})
+    )
+    route = respx_mock.delete("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(200, json=SAMPLE_ORDER_HANDLE)
+    )
+    async with AsyncTradingGateway(max_retries=0) as gw:
+        await gw.close_position("pos_001", quantity="5")
+    assert route.called
+    assert not caps_route.called, "must not fetch capabilities when no type is named"
 
 
 @respx.mock(base_url="http://localhost:8080")
@@ -694,6 +883,7 @@ async def test_404_raises_not_found(respx_mock: respx.MockRouter) -> None:
 
 @respx.mock(base_url="http://localhost:8080")
 async def test_422_raises_order_rejected(respx_mock: respx.MockRouter) -> None:
+    mock_capabilities(respx_mock)
     respx_mock.post("/v1/orders").mock(
         return_value=httpx.Response(
             422,

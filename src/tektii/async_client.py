@@ -14,7 +14,12 @@ import httpx
 
 from tektii._http import auth_headers, build_params, handle_response, http_to_ws_url
 from tektii._version import __version__
-from tektii.errors import APIConnectionError, APIStatusError, PositionUnprotectedError
+from tektii.errors import (
+    APIConnectionError,
+    APIStatusError,
+    PositionUnprotectedError,
+    UnsupportedOrderTypeError,
+)
 from tektii.models import (
     Account,
     Bar,
@@ -164,6 +169,11 @@ class AsyncTradingGateway:
             timeout=timeout,
         )
 
+        # Populated on the first order submission; see _check_order_type_supported.
+        # The lock makes a cold-start burst share one fetch instead of one each.
+        self._capabilities: Capabilities | None = None
+        self._capabilities_lock = asyncio.Lock()
+
     def __repr__(self) -> str:
         redacted = "None" if self._api_key is None else "'***'"
         return f"{type(self).__name__}(base_url={self.base_url!r}, api_key={redacted})"
@@ -272,6 +282,25 @@ class AsyncTradingGateway:
     # Orders
     # -----------------------------------------------------------------------
 
+    async def _check_order_type_supported(self, order_type: str) -> None:
+        """Raise ``UnsupportedOrderTypeError`` if the provider lacks ``order_type``.
+
+        Capabilities are static per connection, so they are fetched once and
+        cached — an order does not pay a round-trip for this. A *failed*
+        fetch is not cached, and propagates: nothing goes out unvalidated.
+        """
+        if self._capabilities is None:
+            async with self._capabilities_lock:
+                # Re-check: a concurrent caller may have filled it while we
+                # waited, and one cold-start burst should share one fetch.
+                if self._capabilities is None:
+                    self._capabilities = await self.get_capabilities()
+
+        supported = self._capabilities.supported_order_types
+        # Callers pass lowercase ("market"); the wire enum is uppercase.
+        if order_type.upper() not in supported:
+            raise UnsupportedOrderTypeError(order_type, supported)
+
     async def submit_order(
         self,
         symbol: str,
@@ -303,7 +332,14 @@ class AsyncTradingGateway:
             side: "buy" or "sell" (case-insensitive).
             quantity: Order quantity as string or Decimal.
             order_type: "market", "limit", "stop", "stop_limit", "trailing_stop".
+                Checked against the provider's capabilities before sending.
+
+        Raises:
+            UnsupportedOrderTypeError: If the connected provider does not
+                support ``order_type``. Raised before the order is sent.
         """
+        await self._check_order_type_supported(order_type)
+
         body: dict[str, Any] = {
             "symbol": symbol,
             "side": side,
@@ -450,11 +486,20 @@ class AsyncTradingGateway:
         limit_price: str | Decimal | None = None,
         cancel_associated_orders: bool | None = None,
     ) -> OrderHandle:
-        """Close a position (partially or fully)."""
+        """Close a position (partially or fully).
+
+        Raises:
+            UnsupportedOrderTypeError: If ``order_type`` is given and the
+                connected provider does not support it. Omitting it leaves
+                the choice to the provider and skips the check entirely —
+                closing a position is risk-reducing, so it must not come to
+                depend on a capabilities fetch that could fail.
+        """
         body: dict[str, Any] = {}
         if quantity is not None:
             body["quantity"] = str(quantity)
         if order_type is not None:
+            await self._check_order_type_supported(order_type)
             body["order_type"] = order_type
         if limit_price is not None:
             body["limit_price"] = str(limit_price)
@@ -676,7 +721,11 @@ class AsyncTradingGateway:
     # -----------------------------------------------------------------------
 
     async def get_capabilities(self) -> Capabilities:
-        """Get provider capabilities (supported order types, asset classes, etc.)."""
+        """Get provider capabilities (supported order types, asset classes, etc.).
+
+        Always fetches fresh. Order-type validation keeps its own cache, so
+        calling this does not prime it (nor does it invalidate it).
+        """
         data = await self._get("/v1/capabilities")
         return Capabilities.model_validate(data)
 

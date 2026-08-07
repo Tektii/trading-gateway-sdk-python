@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, NoReturn
 
 
@@ -100,6 +101,25 @@ class PositionUnprotectedError(APIStatusError):
 
 class ProviderUnavailableError(APIStatusError):
     """503 — PROVIDER_UNAVAILABLE, SHUTTING_DOWN."""
+
+
+class UnsupportedOrderTypeError(TektiiError):
+    """The connected provider does not support the requested order type.
+
+    ``OrderType`` covers every type the gateway's API can express, but a
+    given provider implements a subset — the backtest engine, for instance,
+    has no ``TRAILING_STOP``. Raised by ``submit_order`` before the order is
+    sent, so nothing reaches the provider. ``supported`` carries the types
+    that *are* available, so a strategy can fall back to one of them.
+    """
+
+    def __init__(self, order_type: str, supported: Sequence[str]) -> None:
+        self.order_type = order_type
+        self.supported = list(supported)
+        super().__init__(
+            f"Order type {order_type!r} is not supported by the connected provider. "
+            f"Supported types: {', '.join(self.supported) or '(none reported)'}."
+        )
 
 
 # Maps HTTP status code to exception subclass.

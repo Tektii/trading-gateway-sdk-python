@@ -17,6 +17,7 @@ from tektii.errors import (
     RateLimitedError,
     ServerError,
     TektiiError,
+    UnsupportedOrderTypeError,
 )
 from tektii.models import (
     Account,
@@ -86,6 +87,7 @@ __all__ = [
     "PositionUnprotectedError",
     "ProviderUnavailableError",
     "ServerError",
+    "UnsupportedOrderTypeError",
     # Models
     "Account",
     "Bar",

@@ -30,7 +30,7 @@ from tektii.errors import (
 )
 from tektii.stream import AsyncEventStream
 
-from .conftest import SAMPLE_ACCOUNT
+from .conftest import SAMPLE_ACCOUNT, mock_capabilities
 
 # ---------------------------------------------------------------------------
 # Transport error wrapping — httpx errors become APIConnectionError
@@ -92,6 +92,7 @@ async def test_get_retries_on_timeout_then_succeeds(
 @respx.mock(base_url="http://localhost:8080")
 async def test_post_order_never_retries(respx_mock: respx.MockRouter) -> None:
     """Retrying POST /v1/orders could duplicate a fill. Ban it unconditionally."""
+    mock_capabilities(respx_mock)
     route = respx_mock.post("/v1/orders")
     route.side_effect = [httpx.Response(503, json={"code": "UNAVAILABLE", "message": "x"})]
     async with AsyncTradingGateway(max_retries=5) as gw:
