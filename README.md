@@ -135,8 +135,23 @@ asyncio.run(main())
 
 The stream auto-reconnects with exponential backoff + jitter (capped at
 `max_reconnect_delay`), short-circuits on 401/403 handshake failures, and
-handles ping/pong heartbeats internally. Malformed frames and unknown
-event types are logged and skipped — they never kill the iterator.
+handles ping/pong heartbeats internally.
+
+A frame the SDK cannot parse — malformed JSON, or an event type this SDK
+version doesn't know — never kills the iterator. It is logged at `error`
+and yielded as an `UnknownEvent` carrying the frame verbatim:
+
+```python
+from tektii import UnknownEvent
+
+case UnknownEvent(raw_payload=payload, error=err):
+    print(f"Unparseable frame: {err}\n{payload}")
+```
+
+Surfacing it means a schema mismatch looks like a schema mismatch rather
+than "the event never fired". Note that a bare `case _` fallback will now
+see these too — match `UnknownEvent` explicitly if your fallback branch
+does something meaningful.
 
 The same strategy code runs unchanged against a live broker and the Tektii
 backtest engine. Under the hood the SDK coordinates simulation time
@@ -291,7 +306,7 @@ gw.submit_order("BTC/USD", "buy", qty)
 |--------|-------------|
 | `stream()` | Build an event stream (async or sync context manager + iterator) |
 
-**Event types**: `CandleEvent`, `QuoteEvent`, `OrderEvent`, `PositionEvent`, `AccountEvent`, `TradeEvent`, `ConnectionEvent`, `DataStalenessEvent`, `RateLimitEvent`, `ErrorEvent`
+**Event types**: `CandleEvent`, `QuoteEvent`, `OrderEvent`, `PositionEvent`, `AccountEvent`, `TradeEvent`, `ConnectionEvent`, `DataStalenessEvent`, `RateLimitEvent`, `ErrorEvent`, `UnknownEvent` (SDK-synthesised — an unparseable frame, see [Streaming Events](#streaming-events))
 
 All events can be pattern-matched with Python's `match`/`case` syntax.
 

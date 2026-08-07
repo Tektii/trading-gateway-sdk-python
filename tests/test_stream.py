@@ -15,7 +15,13 @@ import pytest
 import websockets
 import websockets.asyncio.server
 
-from tektii.models import BacktestCompleteEvent, CandleEvent, ErrorEvent, OrderEvent
+from tektii.models import (
+    BacktestCompleteEvent,
+    CandleEvent,
+    ErrorEvent,
+    OrderEvent,
+    UnknownEvent,
+)
 from tektii.stream import AsyncEventStream, SyncEventStream
 
 
@@ -438,16 +444,19 @@ async def test_ack_without_event_id_sends_empty_list() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tolerant parsing — a dropped frame must still be acked when an event_id
-# can be recovered from it, per the gateway's strict event-id ACK contract.
+# Tolerant parsing — an unparseable frame is surfaced as an ``UnknownEvent``
+# and must still be acked when an event_id can be recovered from it, per the
+# gateway's strict event-id ACK contract.
 # ---------------------------------------------------------------------------
 
 
-async def test_unrecognised_event_type_with_event_id_still_acked() -> None:
+async def test_unrecognised_event_type_yielded_as_unknown_event_and_acked() -> None:
     """A frame that parses as JSON but fails pydantic validation (unknown
-    ``type``) must still produce an ack naming its ``event_id`` — otherwise a
-    schema mismatch (e.g. an SDK older than a new event type) starves the
-    backtest engine, which requires every frame it sent to be acked.
+    ``type``) is surfaced to the user as an ``UnknownEvent`` rather than
+    silently skipped, and must still produce an ack naming its ``event_id`` —
+    otherwise a schema mismatch (e.g. an SDK older than a new event type)
+    starves the backtest engine, which requires every frame it sent to be
+    acked.
     """
     received: list[dict] = []
 
@@ -477,15 +486,20 @@ async def test_unrecognised_event_type_with_event_id_still_acked() -> None:
         server.close()
         await server.wait_closed()
 
-    assert events == []
+    assert len(events) == 1
+    assert isinstance(events[0], UnknownEvent)
+    assert events[0].event_id == "evt_bogus_001"
+    assert "some_future_event_type" in events[0].raw_payload
+    assert events[0].error
     acks = [m for m in received if m.get("type") == "event_ack"]
     assert len(acks) == 1
     assert acks[0]["events_processed"] == ["evt_bogus_001"]
 
 
-async def test_unrecognised_event_type_without_event_id_sends_no_ack() -> None:
-    """An unrecognised event with no ``event_id`` must not produce a spurious
-    ack — there is nothing to release under the strict contract.
+async def test_unrecognised_event_type_without_event_id_acks_empty_list() -> None:
+    """An unrecognised event with no ``event_id`` is still yielded as an
+    ``UnknownEvent`` and acked with an empty ``events_processed`` list —
+    the same contract as any other id-less event, releasing nothing.
     """
     received: list[dict] = []
 
@@ -516,16 +530,20 @@ async def test_unrecognised_event_type_without_event_id_sends_no_ack() -> None:
         server.close()
         await server.wait_closed()
 
-    assert len(events) == 1
-    acks = [m for m in received if m.get("type") == "event_ack"]
-    # Only the trailing candle's ack — none for the bogus, id-less frame.
-    assert len(acks) == 1
-    assert acks[0]["events_processed"] == ["evt_after_bogus"]
+    # The bad frame is surfaced, and the stream survives it — the following
+    # candle still arrives.
+    assert len(events) == 2
+    assert isinstance(events[0], UnknownEvent)
+    assert events[0].event_id is None
+    assert isinstance(events[1], CandleEvent)
+    acks = [m["events_processed"] for m in received if m.get("type") == "event_ack"]
+    assert acks == [[], ["evt_after_bogus"]]
 
 
 async def test_malformed_json_with_recoverable_event_id_still_acked() -> None:
     """A frame that fails JSON parsing entirely but still carries a
-    recognisable ``event_id`` key must produce a best-effort ack naming it.
+    recognisable ``event_id`` key is yielded as an ``UnknownEvent`` and must
+    produce a best-effort ack naming it.
     """
     received: list[dict] = []
 
@@ -547,7 +565,10 @@ async def test_malformed_json_with_recoverable_event_id_still_acked() -> None:
         server.close()
         await server.wait_closed()
 
-    assert events == []
+    assert len(events) == 1
+    assert isinstance(events[0], UnknownEvent)
+    assert events[0].event_id == "evt_malformed_001"
+    assert events[0].raw_payload.startswith('{"type": "candle"')
     acks = [m for m in received if m.get("type") == "event_ack"]
     assert len(acks) == 1
     assert acks[0]["events_processed"] == ["evt_malformed_001"]
@@ -578,15 +599,19 @@ async def test_malformed_json_bytes_frame_with_recoverable_event_id_still_acked(
         server.close()
         await server.wait_closed()
 
-    assert events == []
+    assert len(events) == 1
+    assert isinstance(events[0], UnknownEvent)
+    assert events[0].event_id == "evt_malformed_bytes_001"
+    # The binary frame is decoded for the user, not handed back as bytes.
+    assert events[0].raw_payload.startswith('{"type": "candle"')
     acks = [m for m in received if m.get("type") == "event_ack"]
     assert len(acks) == 1
     assert acks[0]["events_processed"] == ["evt_malformed_bytes_001"]
 
 
-async def test_malformed_json_without_recoverable_event_id_sends_no_ack() -> None:
-    """Malformed JSON with no recoverable ``event_id`` must not crash and
-    must not produce a spurious ack.
+async def test_malformed_json_without_recoverable_event_id_acks_empty_list() -> None:
+    """Malformed JSON with no recoverable ``event_id`` must not crash, and is
+    acked with an empty ``events_processed`` list — releasing nothing.
     """
     received: list[dict] = []
 
@@ -610,10 +635,190 @@ async def test_malformed_json_without_recoverable_event_id_sends_no_ack() -> Non
         server.close()
         await server.wait_closed()
 
+    assert len(events) == 2
+    assert isinstance(events[0], UnknownEvent)
+    assert events[0].raw_payload == "{not json at all"
+    assert isinstance(events[1], CandleEvent)
+    acks = [m["events_processed"] for m in received if m.get("type") == "event_ack"]
+    assert acks == [[], ["evt_after_malformed"]]
+
+
+async def test_order_event_missing_required_field_yielded_as_unknown_event() -> None:
+    """A frame whose ``type`` is recognised but whose payload fails validation
+    (an ``order`` missing a required field) reaches the user as an
+    ``UnknownEvent``, not a silent skip. Without this, a strategy author with
+    no logging configured cannot tell a schema mismatch apart from "the event
+    never fired".
+    """
+    bad_order = {
+        "type": "order",
+        "event": "ORDER_FILLED",
+        "timestamp": "2025-01-15T10:30:00Z",
+        "event_id": "evt_bad_order_001",
+        "order": {
+            # ``id`` and several other required fields are missing.
+            "symbol": "AAPL",
+            "side": "BUY",
+        },
+    }
+
+    async def handler(ws):
+        await ws.send(json.dumps(bad_order))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            await asyncio.wait_for(ws.recv(), timeout=2.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
     assert len(events) == 1
-    acks = [m for m in received if m.get("type") == "event_ack"]
-    assert len(acks) == 1
-    assert acks[0]["events_processed"] == ["evt_after_malformed"]
+    event = events[0]
+    assert isinstance(event, UnknownEvent)
+    assert event.event_id == "evt_bad_order_001"
+    assert json.loads(event.raw_payload) == bad_order
+    # Non-empty so a user can debug from the event alone; the exact wording is
+    # Pydantic's, so don't assert on it.
+    assert event.error
+
+
+async def test_json_that_is_not_an_object_yielded_as_unknown_event() -> None:
+    """A frame that is valid JSON but not an object (``null``, ``[]``, a bare
+    number) has no ``type`` to discriminate on — it must still surface as an
+    ``UnknownEvent`` rather than escaping as a ``ValidationError``.
+    """
+
+    async def handler(ws):
+        await ws.send("null")
+        await ws.send("[]")
+        await ws.send(json.dumps(_sample_candle("evt_after_scalar")))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            while True:
+                await asyncio.wait_for(ws.recv(), timeout=1.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(events) == 3
+    assert [type(e) for e in events] == [UnknownEvent, UnknownEvent, CandleEvent]
+    assert [e.raw_payload for e in events[:2]] == ["null", "[]"]
+
+
+async def test_invalid_utf8_binary_frame_yielded_as_unknown_event() -> None:
+    """A binary frame carrying invalid UTF-8 raises ``UnicodeDecodeError`` out
+    of ``json.loads`` — not a ``JSONDecodeError``. It must be tolerated like
+    any other unparseable frame, not kill the iterator.
+    """
+
+    async def handler(ws):
+        # Not a UTF-16 BOM (which ``json`` would sniff and decode) — genuinely
+        # invalid UTF-8, which raises ``UnicodeDecodeError`` inside json.loads.
+        await ws.send(b"\x80\x81 not utf-8")
+        await ws.send(json.dumps(_sample_candle("evt_after_bad_utf8")))
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            while True:
+                await asyncio.wait_for(ws.recv(), timeout=1.0)
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    events = []
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                events.append(event)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(events) == 2
+    assert isinstance(events[0], UnknownEvent)
+    assert isinstance(events[1], CandleEvent)
+
+
+async def test_unknown_event_ack_withheld_until_user_body_runs() -> None:
+    """The ack for an ``UnknownEvent`` must fire *after* the user's loop body,
+    like every other event.
+
+    Previously a dropped frame was acked inline, before (indeed instead of)
+    reaching the user. Routing it through the normal yield path moves the ack
+    behind the user's body — the guarantee the backtest engine's
+    "advance on ack" contract depends on.
+    """
+    order: list[str] = []
+
+    async def handler(ws):
+        await ws.send(
+            json.dumps(
+                {
+                    "type": "some_future_event_type",
+                    "event_id": "evt_unknown_order_001",
+                    "timestamp": "2025-01-15T10:30:00Z",
+                }
+            )
+        )
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            raw = await asyncio.wait_for(ws.recv(), timeout=3.0)
+            if json.loads(raw).get("type") == "event_ack":
+                order.append("ack_received")
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        stream = AsyncEventStream(ws_url=url, reconnect=False)
+        async with stream:
+            async for event in stream:
+                assert isinstance(event, UnknownEvent)
+                order.append("body_start")
+                # Long enough that a premature ack would land mid-body.
+                await asyncio.sleep(0.1)
+                order.append("body_end")
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert order == ["body_start", "body_end", "ack_received"]
+
+
+async def test_unparseable_frame_logs_at_error_level(caplog) -> None:
+    """The drop path logs at ``error``, not ``warning`` — a schema mismatch
+    silently eating events is a defect, not routine noise.
+    """
+
+    async def handler(ws):
+        await ws.send("{not json at all")
+        await ws.send(json.dumps({"type": "no_such_type", "timestamp": "2025-01-15T10:30:00Z"}))
+        await ws.close()
+
+    server, url = await _run_ws_server(handler)
+    try:
+        with caplog.at_level(logging.ERROR, logger="tektii.stream"):
+            stream = AsyncEventStream(ws_url=url, reconnect=False)
+            async with stream:
+                async for _event in stream:
+                    pass
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -750,6 +955,53 @@ async def test_sync_stream_ack_without_event_id_sends_empty_list() -> None:
     acks = [m for m in received_messages if m.get("type") == "event_ack"]
     assert len(acks) == 1
     assert acks[0]["events_processed"] == []
+
+
+async def test_sync_stream_yields_unknown_event_and_acks_it() -> None:
+    """The sync wrapper surfaces an unparseable frame as an ``UnknownEvent``
+    too, and acks its recovered ``event_id`` after the for-body runs.
+    """
+    received_messages: list[dict] = []
+
+    async def handler(ws):
+        await ws.send(
+            json.dumps(
+                {
+                    "type": "some_future_event_type",
+                    "event_id": "evt_sync_unknown_001",
+                    "timestamp": "2025-01-15T10:30:00Z",
+                }
+            )
+        )
+        with contextlib.suppress(TimeoutError, websockets.exceptions.ConnectionClosed):
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            received_messages.append(json.loads(raw))
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(ws.wait_closed(), timeout=1.0)
+
+    server, url = await _run_ws_server(handler)
+
+    def run_sync_iter() -> list:
+        stream = SyncEventStream(ws_url=url, reconnect=False)
+        collected: list = []
+        with stream:
+            for event in stream:
+                collected.append(event)
+                break
+        return collected
+
+    try:
+        events = await asyncio.to_thread(run_sync_iter)
+    finally:
+        server.close()
+        await server.wait_closed()
+
+    assert len(events) == 1
+    assert isinstance(events[0], UnknownEvent)
+    assert events[0].event_id == "evt_sync_unknown_001"
+    acks = [m for m in received_messages if m.get("type") == "event_ack"]
+    assert len(acks) == 1
+    assert acks[0]["events_processed"] == ["evt_sync_unknown_001"]
 
 
 async def test_trailing_ack_flushed_on_clean_close() -> None:

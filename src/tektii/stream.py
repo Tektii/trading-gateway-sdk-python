@@ -33,7 +33,7 @@ import websockets.asyncio.client
 import websockets.exceptions
 from pydantic import TypeAdapter
 
-from tektii.models import BacktestCompleteEvent, GatewayEvent, PingEvent
+from tektii.models import BacktestCompleteEvent, GatewayEvent, PingEvent, UnknownEvent
 
 # Hook fired once on a clean end-of-backtest terminal. The async stream
 # accepts a coroutine function (awaited) or a plain callable; the sync stream
@@ -61,22 +61,37 @@ _LOCALHOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 _EVENT_ID_PATTERN = re.compile(r'"event_id"\s*:\s*"([^"]*)"')
 
 
-def _best_effort_event_id(raw: str | bytes, data: Any = None) -> str | None:
-    """Recover a top-level ``event_id`` from a frame the SDK is dropping.
+def _best_effort_event_id(text: str, data: Any = None) -> str | None:
+    """Recover a top-level ``event_id`` from a frame the SDK cannot parse.
 
-    Used on the tolerant-parsing drop paths — malformed JSON (no parsed
-    ``data`` available, so a regex over the raw text) and an unrecognised
-    event type (``data`` is a dict; read the key directly). The gateway's
-    strict ACK contract requires every id-bearing frame to be acked, even
-    ones the SDK can't fully parse, or the backtest engine starves toward
-    its consecutive-timeout halt.
+    Used on the tolerant-parsing paths — malformed JSON (no parsed ``data``
+    available, so a regex over the raw text) and an unrecognised event type
+    (``data`` is a dict; read the key directly). The gateway's strict ACK
+    contract requires every id-bearing frame to be acked, even ones the SDK
+    can't fully parse, or the backtest engine starves toward its
+    consecutive-timeout halt.
     """
     if isinstance(data, dict):
         event_id = data.get("event_id")
         return event_id if isinstance(event_id, str) else None
-    text = raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else raw
     match = _EVENT_ID_PATTERN.search(text)
     return match.group(1) if match else None
+
+
+def _unknown_event(raw: str | bytes, err: Exception, data: Any = None) -> UnknownEvent:
+    """Wrap an unparseable frame as a yieldable :class:`UnknownEvent`.
+
+    Carries the frame verbatim plus the failure, and any ``event_id`` that
+    could be recovered — so the frame is acked by the normal yield path like
+    every other event. Binary frames are decoded once, with replacement, so
+    the id recovered is read from exactly the text the user is shown.
+    """
+    text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+    return UnknownEvent(
+        raw_payload=text,
+        error=str(err),
+        event_id=_best_effort_event_id(text, data),
+    )
 
 
 def _warn_if_ws_credentials_over_plaintext(ws_url: str, api_key: str | None) -> None:
@@ -232,12 +247,6 @@ class AsyncEventStream:
                 err,
             )
 
-    async def _ack_recovered_event_id(self, raw: str | bytes, data: Any = None) -> None:
-        """Ack a dropped frame's ``event_id`` if one can be recovered."""
-        event_id = _best_effort_event_id(raw, data)
-        if event_id is not None:
-            await self._try_flush_ack([event_id])
-
     async def _handle_terminal(self, event: BacktestCompleteEvent) -> None:
         """Process a clean end-of-backtest terminal.
 
@@ -275,26 +284,37 @@ class AsyncEventStream:
 
                 async for raw in self._ws:
                     # Tolerant parsing: a single malformed frame or unknown
-                    # event type must not kill the iterator. Log and skip.
+                    # event type must not kill the iterator. It is surfaced
+                    # to the user as an ``UnknownEvent`` rather than skipped
+                    # — a silent drop is indistinguishable from "the event
+                    # never fired" — and logged at error, because a frame the
+                    # SDK cannot parse is a schema defect, not routine noise.
+                    # Falling through to the normal yield path means the
+                    # frame is acked on the same terms as any other event.
+                    event: GatewayEvent
                     try:
                         data = json.loads(raw)
-                    except json.JSONDecodeError as err:
-                        logger.warning(
-                            "Dropping WebSocket frame with malformed JSON: %s",
+                    except (json.JSONDecodeError, UnicodeDecodeError) as err:
+                        # ``UnicodeDecodeError`` is not a ``JSONDecodeError``:
+                        # a binary frame carrying invalid UTF-8 raises it out
+                        # of ``json.loads`` and would otherwise escape the
+                        # iterator, killing the stream on one bad frame.
+                        logger.error(
+                            "Yielding UnknownEvent for WebSocket frame with malformed JSON: %s",
                             err,
                         )
-                        await self._ack_recovered_event_id(raw)
-                        continue
-                    try:
-                        event = _event_adapter.validate_python(data)
-                    except pydantic.ValidationError as err:
-                        logger.warning(
-                            "Dropping unrecognised WebSocket event (type=%r): %s",
-                            data.get("type") if isinstance(data, dict) else None,
-                            err,
-                        )
-                        await self._ack_recovered_event_id(raw, data)
-                        continue
+                        event = _unknown_event(raw, err)
+                    else:
+                        try:
+                            event = _event_adapter.validate_python(data)
+                        except pydantic.ValidationError as err:
+                            logger.error(
+                                "Yielding UnknownEvent for unrecognised WebSocket event "
+                                "(type=%r): %s",
+                                data.get("type") if isinstance(data, dict) else None,
+                                err,
+                            )
+                            event = _unknown_event(raw, err, data)
 
                     # Handle ping internally — never yield to user.
                     if isinstance(event, PingEvent):

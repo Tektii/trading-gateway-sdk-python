@@ -28,6 +28,7 @@ from tektii.errors import (
     APIStatusError,
     TektiiError,
 )
+from tektii.models import UnknownEvent
 from tektii.stream import AsyncEventStream
 
 from .conftest import SAMPLE_ACCOUNT, mock_capabilities
@@ -382,11 +383,12 @@ async def test_sync_client_inside_running_loop_raises() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_malformed_ws_frame_is_skipped() -> None:
+async def test_malformed_ws_frame_does_not_kill_iterator() -> None:
     """A single malformed JSON frame must not kill the iterator.
 
     The gateway protocol is versioned; a bad frame from a mis-wired upstream
-    should be logged and skipped rather than bubbling up as a JSONDecodeError.
+    is surfaced as an ``UnknownEvent`` rather than bubbling up as a
+    JSONDecodeError, and the following valid frame still arrives.
     """
 
     async def handler(ws):
@@ -417,13 +419,14 @@ async def test_malformed_ws_frame_is_skipped() -> None:
         server.close()
         await server.wait_closed()
 
-    assert len(events) == 1
-    assert events[0].code == "INTERNAL_ERROR"
+    assert len(events) == 2
+    assert isinstance(events[0], UnknownEvent)
+    assert events[1].code == "INTERNAL_ERROR"
 
 
-async def test_unknown_ws_event_type_is_skipped() -> None:
-    """Unknown event ``type`` should be dropped with a warning, not escape
-    the iterator as a Pydantic ``ValidationError``.
+async def test_unknown_ws_event_type_does_not_kill_iterator() -> None:
+    """Unknown event ``type`` should surface as an ``UnknownEvent``, not
+    escape the iterator as a Pydantic ``ValidationError``.
     """
 
     async def handler(ws):
@@ -455,7 +458,9 @@ async def test_unknown_ws_event_type_is_skipped() -> None:
         server.close()
         await server.wait_closed()
 
-    assert len(events) == 1
+    assert len(events) == 2
+    assert isinstance(events[0], UnknownEvent)
+    assert "brand_new_event_type" in events[0].raw_payload
 
 
 # ---------------------------------------------------------------------------

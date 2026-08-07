@@ -66,6 +66,17 @@ The mechanism in `stream.py`:
 5. `SyncEventStream` flips the inner `AsyncEventStream`'s private `_ack_on_yield=False` and re-ACKs from the sync iterator thread — preserves the "ACK after user processes" guarantee across the thread boundary
 6. Ping/pong heartbeats are handled internally and never yielded to the user
 
+## Unparseable frames
+
+A frame that fails JSON parsing or validation against the `GatewayEvent`
+union is **not** dropped. It is logged at `error` and yielded as an
+`UnknownEvent` (`models.py`) carrying `raw_payload`, `error`, and any
+`event_id` recovered from the raw text — so it flows through the normal
+yield/ACK path like any other event. A silent skip was indistinguishable
+from "the event never fired" for a strategy author with no logging
+configured. Tolerant iteration is preserved: one bad frame never kills the
+stream. Note this means a user's bare `case _` now sees these.
+
 ## Dependencies
 
 **Runtime**: `httpx`, `websockets`, `pydantic` (v2)
