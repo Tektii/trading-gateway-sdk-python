@@ -39,6 +39,7 @@ from tektii.models import (
     ConnectionStatus,
     DetailedHealthStatus,
     ModifyOrderResult,
+    ModifyPositionExitsResult,
     Order,
     OrderHandle,
     Position,
@@ -375,6 +376,26 @@ class TradingGateway:
                 order_type=order_type,
                 limit_price=limit_price,
                 cancel_associated_orders=cancel_associated_orders,
+            )
+        )
+
+    def modify_position_exits(
+        self,
+        position_id: str,
+        *,
+        stop_loss: str | Decimal | None = None,
+        take_profit: str | Decimal | None = None,
+    ) -> ModifyPositionExitsResult:
+        """Move a position's resting stop-loss or take-profit.
+
+        See :meth:`AsyncTradingGateway.modify_position_exits` for the 409-vs-502
+        safety semantics and why leg order ids must not be cached.
+        """
+        return self._run(
+            lambda gw: gw.modify_position_exits(
+                position_id,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
             )
         )
 

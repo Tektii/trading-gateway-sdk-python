@@ -212,7 +212,42 @@ use `AsyncTradingGateway` there instead.
 | `list_positions(*, symbol=)` | List open positions |
 | `get_position(position_id)` | Get position details |
 | `close_position(position_id, ...)` | Close a position |
+| `modify_position_exits(position_id, *, stop_loss=, take_profit=)` | Move a position's resting stop-loss / take-profit |
 | `close_all_positions(*, symbol=)` | Close all positions |
+
+#### Moving a resting stop-loss or take-profit
+
+Use `modify_position_exits()` — not `modify_order()` — for the exit legs the
+gateway placed when a position's entry filled. `modify_order()` addresses the
+provider directly and leaves the gateway's exit handler pointing at an order
+that may no longer exist. Omit a leg to leave it where it is; at least one is
+required.
+
+```python
+from tektii import ConflictError, PositionUnprotectedError
+
+try:
+    result = gw.modify_position_exits(position_id, stop_loss="180.00")
+except ConflictError:
+    # The move was rejected and the original exit was restored.
+    # The position is still protected — safe to retry.
+    ...
+except PositionUnprotectedError:
+    # The exit was cancelled and could not be re-established.
+    # The position is UNCOVERED for that leg — re-establish it or flatten.
+    # The same condition arrives on the WebSocket as POSITION_UNPROTECTED.
+    ...
+else:
+    print(result.stop_loss.trigger_price, result.stop_loss.order_ids)
+```
+
+A leg's `order_ids` can change under a move — where the provider cannot modify
+in place the gateway cancels and re-places the orders — so **never cache leg
+order ids**; read them from each result. A leg whose entry filled in parts
+rests as several orders and they all move together. Legs are moved one at a
+time and are not rolled back as a set: if both are named and the second fails,
+the first stays at its new price and the call still raises. Re-read the
+position to see where each leg ended up.
 
 ### Market Data
 
@@ -305,6 +340,12 @@ except APIStatusError as e:
     - `OrderRejectedError` (422) — includes `details.reject_reason`
     - `RateLimitedError` (429)
     - `ServerError` (500)
+    - `PositionUnprotectedError` (502) — raised **only** by
+      `modify_position_exits`: the exit leg was cancelled and could not be
+      re-established, so the position is uncovered. Distinct from
+      `ConflictError` (409), where the move was rejected but the original exit
+      is still resting. A 502 from anywhere else (a proxy, a load balancer)
+      stays a plain `APIStatusError`.
     - `ProviderUnavailableError` (503)
 
 `APIStatusError.details` carries the gateway's structured error envelope.

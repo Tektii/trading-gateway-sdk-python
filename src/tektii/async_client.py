@@ -14,7 +14,7 @@ import httpx
 
 from tektii._http import auth_headers, build_params, handle_response, http_to_ws_url
 from tektii._version import __version__
-from tektii.errors import APIConnectionError
+from tektii.errors import APIConnectionError, APIStatusError, PositionUnprotectedError
 from tektii.models import (
     Account,
     Bar,
@@ -25,6 +25,7 @@ from tektii.models import (
     ConnectionStatus,
     DetailedHealthStatus,
     ModifyOrderResult,
+    ModifyPositionExitsResult,
     Order,
     OrderHandle,
     Position,
@@ -66,6 +67,7 @@ _DEFAULT_USER_AGENT = f"tektii-python/{__version__} httpx/{httpx.__version__}"
 _RETRYABLE_METHODS = frozenset({"GET", "DELETE", "HEAD"})
 _RETRYABLE_STATUSES = frozenset({502, 503, 504})
 _STATUS_TOO_MANY_REQUESTS = 429
+_STATUS_BAD_GATEWAY = 502
 
 
 def _check_credentials_over_plaintext(
@@ -464,6 +466,70 @@ class AsyncTradingGateway:
             json=body,
         )
         return OrderHandle.model_validate(data)
+
+    async def modify_position_exits(
+        self,
+        position_id: str,
+        *,
+        stop_loss: str | Decimal | None = None,
+        take_profit: str | Decimal | None = None,
+    ) -> ModifyPositionExitsResult:
+        """Move a position's resting stop-loss or take-profit.
+
+        Use this — not ``modify_order`` — for the exit legs the gateway placed
+        when the position's entry filled. ``modify_order`` addresses the
+        provider directly and leaves the gateway's exit handler pointing at an
+        order that may no longer exist.
+
+        Omit a leg to leave it where it is. Only legs the gateway already
+        tracks can be moved; this does not attach an exit to a position that
+        has none.
+
+        The returned ``order_ids`` for a leg can differ from the previous ones:
+        where the provider cannot modify in place the gateway cancels and
+        re-places the orders. **Never cache leg order ids** — read them from
+        the result of each move. A leg whose entry filled in parts rests as
+        several orders, and all of them move together.
+
+        Legs are moved one at a time and are not rolled back as a set: if both
+        are named and the second fails, the first stays at its new price and
+        the call still raises. Re-read the position to see where each leg
+        ended up.
+
+        Args:
+            position_id: The position whose exits should move.
+            stop_loss: New stop-loss trigger price.
+            take_profit: New take-profit trigger price.
+
+        Raises:
+            ValueError: If neither leg is given.
+            ConflictError: 409 — the leg is not tracked, or the move was
+                rejected and the original exit was restored. **The position is
+                still protected.**
+            PositionUnprotectedError: 502 — the exit was cancelled and could
+                not be re-established. **The position is uncovered for that
+                leg**, and the same condition arrives on the WebSocket as
+                ``POSITION_UNPROTECTED``.
+        """
+        if stop_loss is None and take_profit is None:
+            raise ValueError("modify_position_exits requires stop_loss, take_profit, or both")
+
+        fields = {"stop_loss": stop_loss, "take_profit": take_profit}
+        body = {k: str(v) for k, v in fields.items() if v is not None}
+
+        try:
+            data = await self._patch(f"/v1/positions/{self._seg(position_id)}", json=body)
+        except APIStatusError as err:
+            # 502 carries the "position is now uncovered" meaning only on this
+            # endpoint. The shared status→exception map is global, so promoting
+            # it here keeps a proxy's generic Bad Gateway on some other call
+            # from masquerading as an unprotected position.
+            if err.status_code == _STATUS_BAD_GATEWAY:
+                raise PositionUnprotectedError(
+                    err.status_code, err.code, err.message, err.details
+                ) from err
+            raise
+        return ModifyPositionExitsResult.model_validate(data)
 
     async def close_all_positions(self, *, symbol: str | None = None) -> list[OrderHandle]:
         """Close all positions, optionally filtered by symbol."""

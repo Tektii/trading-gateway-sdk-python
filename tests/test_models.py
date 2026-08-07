@@ -15,9 +15,11 @@ from tektii.models import (
     DataStalenessEvent,
     DetailedHealthStatus,
     ErrorEvent,
+    ExitLegPlacement,
     FinancingEvent,
     GatewayEvent,
     ModifyOrderResult,
+    ModifyPositionExitsResult,
     Order,
     OrderEvent,
     OrderHandle,
@@ -130,6 +132,37 @@ def test_position_parse() -> None:
     assert position.id == "pos_001"
     assert position.side == "LONG"
     assert position.unrealized_pnl == "175.00"
+
+
+def test_modify_position_exits_result_parse() -> None:
+    data = {
+        "position_id": "pos_001",
+        "stop_loss": {
+            "order_ids": ["ord_sl_1", "ord_sl_2"],
+            "trigger_price": "180.00",
+        },
+        "take_profit": {"order_ids": ["ord_tp_1"], "trigger_price": "195.00"},
+    }
+    result = ModifyPositionExitsResult.model_validate(data)
+    assert result.position_id == "pos_001"
+    assert result.stop_loss is not None
+    # A leg that filled in parts rests as several orders and moves as one.
+    assert result.stop_loss.order_ids == ["ord_sl_1", "ord_sl_2"]
+    assert result.stop_loss.trigger_price == "180.00"
+    assert result.take_profit is not None
+    assert result.take_profit.trigger_price == "195.00"
+
+
+def test_modify_position_exits_result_untouched_leg_is_none() -> None:
+    """A leg the caller didn't move comes back absent, not as an empty placement."""
+    result = ModifyPositionExitsResult.model_validate(
+        {
+            "position_id": "pos_001",
+            "stop_loss": {"order_ids": ["ord_sl_1"], "trigger_price": "180.00"},
+        }
+    )
+    assert result.take_profit is None
+    assert isinstance(result.stop_loss, ExitLegPlacement)
 
 
 def test_quote_parse() -> None:
