@@ -191,6 +191,30 @@ class FinancingEvent(BaseEvent):
     symbol: str
 
 
+class UnknownEvent(BaseEvent):
+    """A frame the SDK could not parse, surfaced instead of silently dropped.
+
+    Produced by the stream itself — never sent by the gateway — when a frame
+    is malformed JSON or fails validation against every known event type
+    (typically an SDK older than the gateway that sent it). Yielding it keeps
+    a schema mismatch visible to a strategy author with no logging
+    configured, where a silent skip is indistinguishable from "the event
+    never fired".
+
+    ``raw_payload`` is the frame verbatim (binary frames decoded as UTF-8
+    with replacement) and ``error`` is the parse/validation failure. A bare
+    ``case _`` in a strategy's ``match`` will see these, so match on it
+    explicitly if the fallback branch does something meaningful.
+    """
+
+    type: Literal["unknown"] = "unknown"
+    raw_payload: str
+    error: str
+    # The frame's own timestamp may be absent or unparseable — this is when
+    # the SDK received it.
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 def _get_event_type(data: Any) -> str:
     value = data.get("type", "") if isinstance(data, dict) else getattr(data, "type", "")
     return str(value) if value is not None else ""
@@ -209,7 +233,10 @@ GatewayEvent = Annotated[
     | Annotated[DataStalenessEvent, Tag("data_staleness")]
     | Annotated[RateLimitEvent, Tag("rate_limit")]
     | Annotated[ErrorEvent, Tag("error")]
-    | Annotated[FinancingEvent, Tag("financing")],
+    | Annotated[FinancingEvent, Tag("financing")]
+    # SDK-synthesised, not a wire type — in the union so a yielded
+    # ``UnknownEvent`` type-checks like any other event.
+    | Annotated[UnknownEvent, Tag("unknown")],
     Discriminator(_get_event_type),
 ]
 
@@ -278,5 +305,6 @@ __all__ = [
     "RateLimitEvent",
     "ErrorEvent",
     "FinancingEvent",
+    "UnknownEvent",
     "GatewayEvent",
 ]

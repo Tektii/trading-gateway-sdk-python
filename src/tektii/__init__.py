@@ -61,6 +61,7 @@ from tektii.models import (
     TradeEvent,
     TradingPlatform,
     TrailingType,
+    UnknownEvent,
     WsErrorCode,
 )
 from tektii.stream import AsyncEventStream, SyncEventStream
@@ -134,4 +135,5 @@ __all__ = [
     "QuoteEvent",
     "RateLimitEvent",
     "TradeEvent",
+    "UnknownEvent",
 ]
