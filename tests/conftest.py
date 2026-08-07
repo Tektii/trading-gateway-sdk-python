@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
+import respx
 
 _GATEWAY_ENV_VARS = (
     "TEKTII_TRADING_GATEWAY_URL",
@@ -135,3 +137,18 @@ SAMPLE_CIRCUIT_BREAKERS = {
     "exit_order": {"state": "closed", "failure_count": 0},
     "adapter": {"state": "closed", "failure_count": 0},
 }
+
+
+def mock_capabilities(
+    respx_mock: respx.MockRouter, *, order_types: list[str] | None = None
+) -> respx.Route:
+    """Route ``GET /v1/capabilities`` for a test that submits an order.
+
+    Order submission checks the requested type against what the provider
+    supports, so every test reaching ``submit_order`` must serve this
+    endpoint. Pass ``order_types`` to override the supported set.
+    """
+    body = dict(SAMPLE_CAPABILITIES)
+    if order_types is not None:
+        body["supported_order_types"] = order_types
+    return respx_mock.get("/v1/capabilities").mock(return_value=httpx.Response(200, json=body))

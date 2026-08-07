@@ -331,6 +331,11 @@ except APIStatusError as e:
   - `APIProtocolError` — gateway returned something the SDK cannot parse
     (unexpected content type, malformed JSON, oversized body). Carries
     `status_code`, `method`, `path`.
+  - `UnsupportedOrderTypeError` — the connected provider does not support the
+    requested order type. Raised by `submit_order`, and by `close_position`
+    when you name an `order_type`, **before** the order is sent — so nothing
+    reaches the broker. Carries `order_type` and the `supported` list, so you
+    can fall back to a type that is available.
   - `APIStatusError` — gateway returned a structured error response (has
     `status_code`, `code`, `message`, `details`)
     - `BadRequestError` (400)

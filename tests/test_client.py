@@ -10,7 +10,7 @@ import pytest
 import respx
 
 from tektii.client import TradingGateway
-from tektii.errors import NotFoundError, PositionUnprotectedError
+from tektii.errors import NotFoundError, PositionUnprotectedError, UnsupportedOrderTypeError
 from tektii.models import (
     Account,
     Bar,
@@ -43,6 +43,7 @@ from .conftest import (
     SAMPLE_POSITION,
     SAMPLE_QUOTE,
     SAMPLE_TRADE,
+    mock_capabilities,
 )
 
 
@@ -57,11 +58,36 @@ def test_sync_get_account(respx_mock: respx.MockRouter) -> None:
 
 @respx.mock(base_url="http://localhost:8080")
 def test_sync_submit_order(respx_mock: respx.MockRouter) -> None:
+    mock_capabilities(respx_mock)
     respx_mock.post("/v1/orders").mock(return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE))
     gw = TradingGateway()
     handle = gw.submit_order("AAPL", "buy", "1")
     assert isinstance(handle, OrderHandle)
     assert handle.id == "ord_123"
+
+
+@respx.mock(base_url="http://localhost:8080", assert_all_called=False)
+def test_sync_submit_order_rejects_unsupported_order_type(respx_mock: respx.MockRouter) -> None:
+    """The sync client inherits validation from the async client it wraps."""
+    mock_capabilities(respx_mock, order_types=["MARKET", "LIMIT", "STOP"])
+    route = respx_mock.post("/v1/orders").mock(
+        return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE)
+    )
+    gw = TradingGateway()
+    with pytest.raises(UnsupportedOrderTypeError):
+        gw.submit_order("AAPL", "buy", "1", "trailing_stop")
+    assert not route.called
+
+
+@respx.mock(base_url="http://localhost:8080")
+def test_sync_submit_order_shares_the_capabilities_cache(respx_mock: respx.MockRouter) -> None:
+    """One shared async gateway per sync client means one capabilities fetch."""
+    caps_route = mock_capabilities(respx_mock)
+    respx_mock.post("/v1/orders").mock(return_value=httpx.Response(201, json=SAMPLE_ORDER_HANDLE))
+    gw = TradingGateway()
+    gw.submit_order("AAPL", "buy", "1")
+    gw.submit_order("AAPL", "sell", "1")
+    assert caps_route.call_count == 1
 
 
 @respx.mock(base_url="http://localhost:8080")
@@ -211,6 +237,19 @@ def test_sync_close_position(respx_mock: respx.MockRouter) -> None:
     assert isinstance(handle, OrderHandle)
     sent = json.loads(route.calls.last.request.content)
     assert sent == {"quantity": "5"}
+
+
+@respx.mock(base_url="http://localhost:8080", assert_all_called=False)
+def test_sync_close_position_rejects_unsupported_order_type(
+    respx_mock: respx.MockRouter,
+) -> None:
+    mock_capabilities(respx_mock, order_types=["MARKET", "LIMIT", "STOP"])
+    route = respx_mock.delete("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(200, json=SAMPLE_ORDER_HANDLE)
+    )
+    with pytest.raises(UnsupportedOrderTypeError):
+        TradingGateway().close_position("pos_001", order_type="trailing_stop")
+    assert not route.called
 
 
 @respx.mock(base_url="http://localhost:8080")

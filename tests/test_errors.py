@@ -2,6 +2,7 @@
 
 import pytest
 
+import tektii
 from tektii.errors import (
     APIStatusError,
     AuthenticationError,
@@ -14,6 +15,7 @@ from tektii.errors import (
     RateLimitedError,
     ServerError,
     TektiiError,
+    UnsupportedOrderTypeError,
     raise_for_status,
 )
 
@@ -29,6 +31,29 @@ def test_error_hierarchy() -> None:
     assert issubclass(ProviderUnavailableError, APIStatusError)
     assert issubclass(ServerError, APIStatusError)
     assert issubclass(PositionUnprotectedError, APIStatusError)
+
+
+def test_unsupported_order_type_is_a_client_side_error() -> None:
+    """Raised before any request, so it is not an ``APIStatusError``."""
+    assert issubclass(UnsupportedOrderTypeError, TektiiError)
+    assert not issubclass(UnsupportedOrderTypeError, APIStatusError)
+
+
+def test_unsupported_order_type_carries_the_alternatives() -> None:
+    err = UnsupportedOrderTypeError("trailing_stop", ["MARKET", "LIMIT"])
+    assert err.order_type == "trailing_stop"
+    assert err.supported == ["MARKET", "LIMIT"]
+    assert "trailing_stop" in str(err)
+    assert "MARKET, LIMIT" in str(err)
+
+
+def test_unsupported_order_type_with_no_alternatives_reads_sensibly() -> None:
+    """A provider reporting an empty set must not render as a dangling list."""
+    assert "(none reported)" in str(UnsupportedOrderTypeError("market", []))
+
+
+def test_unsupported_order_type_is_exported() -> None:
+    assert tektii.UnsupportedOrderTypeError is UnsupportedOrderTypeError
 
 
 def test_api_error_attributes() -> None:
