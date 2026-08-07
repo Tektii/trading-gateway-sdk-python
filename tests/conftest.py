@@ -64,6 +64,15 @@ SAMPLE_POSITION = {
     "updated_at": "2025-01-15T10:30:00Z",
 }
 
+SAMPLE_EXIT_MOVE = {
+    "position_id": "pos_001",
+    "stop_loss": {
+        "order_ids": ["ord_sl_1", "ord_sl_2"],
+        "trigger_price": "180.00",
+    },
+    "take_profit": None,
+}
+
 SAMPLE_QUOTE = {
     "symbol": "AAPL",
     "provider": "alpaca",

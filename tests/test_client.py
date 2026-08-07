@@ -10,7 +10,7 @@ import pytest
 import respx
 
 from tektii.client import TradingGateway
-from tektii.errors import NotFoundError
+from tektii.errors import NotFoundError, PositionUnprotectedError
 from tektii.models import (
     Account,
     Bar,
@@ -21,6 +21,7 @@ from tektii.models import (
     ConnectionStatus,
     DetailedHealthStatus,
     ModifyOrderResult,
+    ModifyPositionExitsResult,
     Order,
     OrderHandle,
     Position,
@@ -35,6 +36,7 @@ from .conftest import (
     SAMPLE_CAPABILITIES,
     SAMPLE_CIRCUIT_BREAKERS,
     SAMPLE_CONNECTION_STATUS,
+    SAMPLE_EXIT_MOVE,
     SAMPLE_HEALTH,
     SAMPLE_ORDER,
     SAMPLE_ORDER_HANDLE,
@@ -209,6 +211,33 @@ def test_sync_close_position(respx_mock: respx.MockRouter) -> None:
     assert isinstance(handle, OrderHandle)
     sent = json.loads(route.calls.last.request.content)
     assert sent == {"quantity": "5"}
+
+
+@respx.mock(base_url="http://localhost:8080")
+def test_sync_modify_position_exits(respx_mock: respx.MockRouter) -> None:
+    route = respx_mock.patch("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(200, json=SAMPLE_EXIT_MOVE)
+    )
+    result = TradingGateway().modify_position_exits("pos_001", stop_loss=Decimal("180.00"))
+    assert isinstance(result, ModifyPositionExitsResult)
+    assert result.stop_loss is not None
+    assert result.stop_loss.trigger_price == "180.00"
+    assert json.loads(route.calls.last.request.content) == {"stop_loss": "180.00"}
+
+
+@respx.mock(base_url="http://localhost:8080")
+def test_sync_modify_position_exits_unprotected(respx_mock: respx.MockRouter) -> None:
+    """The 502 → unprotected mapping must survive the asyncio.run boundary."""
+    respx_mock.patch("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(
+            502,
+            json={"code": "PROVIDER_ERROR", "message": "exit could not be restored"},
+        )
+    )
+    with pytest.raises(PositionUnprotectedError) as exc_info:
+        TradingGateway().modify_position_exits("pos_001", take_profit="195.00")
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.code == "PROVIDER_ERROR"
 
 
 @respx.mock(base_url="http://localhost:8080")

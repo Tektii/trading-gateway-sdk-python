@@ -87,6 +87,17 @@ class ServerError(APIStatusError):
     """500 — INTERNAL_ERROR. Unexpected failure inside the gateway."""
 
 
+class PositionUnprotectedError(APIStatusError):
+    """502 — an exit leg was cancelled and could not be re-established.
+
+    Raised only by ``modify_position_exits``, which promotes that endpoint's
+    502 to this class; a 502 from anywhere else (a proxy, a load balancer)
+    stays a plain ``APIStatusError``. See
+    :meth:`~tektii.async_client.AsyncTradingGateway.modify_position_exits`
+    for what to do about it.
+    """
+
+
 class ProviderUnavailableError(APIStatusError):
     """503 — PROVIDER_UNAVAILABLE, SHUTTING_DOWN."""
 

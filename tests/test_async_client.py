@@ -19,6 +19,7 @@ from tektii.errors import (
     ConflictError,
     NotFoundError,
     OrderRejectedError,
+    PositionUnprotectedError,
     ProviderUnavailableError,
     RateLimitedError,
     ServerError,
@@ -34,6 +35,7 @@ from tektii.models import (
     ConnectionStatus,
     DetailedHealthStatus,
     ModifyOrderResult,
+    ModifyPositionExitsResult,
     Order,
     OrderHandle,
     Position,
@@ -47,6 +49,7 @@ from .conftest import (
     SAMPLE_CAPABILITIES,
     SAMPLE_CIRCUIT_BREAKERS,
     SAMPLE_CONNECTION_STATUS,
+    SAMPLE_EXIT_MOVE,
     SAMPLE_HEALTH,
     SAMPLE_ORDER,
     SAMPLE_ORDER_HANDLE,
@@ -388,6 +391,138 @@ async def test_close_position_partial_sends_body(respx_mock: respx.MockRouter) -
         "limit_price": "185.50",
         "cancel_associated_orders": True,
     }
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_modify_position_exits(respx_mock: respx.MockRouter) -> None:
+    route = respx_mock.patch("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(200, json=SAMPLE_EXIT_MOVE)
+    )
+    async with AsyncTradingGateway() as gw:
+        result = await gw.modify_position_exits("pos_001", stop_loss=Decimal("180.00"))
+    assert isinstance(result, ModifyPositionExitsResult)
+    assert result.position_id == "pos_001"
+    assert result.stop_loss is not None
+    assert result.stop_loss.trigger_price == "180.00"
+    assert result.stop_loss.order_ids == ["ord_sl_1", "ord_sl_2"]
+    assert result.take_profit is None
+    # Decimal is stringified; the untouched leg is omitted, not sent as null —
+    # sending `take_profit: null` would read as "move it" to the gateway.
+    assert json.loads(route.calls.last.request.content) == {"stop_loss": "180.00"}
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_modify_position_exits_omits_untouched_stop_loss(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """Mirror of the above: moving only the take-profit must not touch the stop."""
+    route = respx_mock.patch("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(200, json=SAMPLE_EXIT_MOVE)
+    )
+    async with AsyncTradingGateway() as gw:
+        await gw.modify_position_exits("pos_001", take_profit="195.00")
+    assert json.loads(route.calls.last.request.content) == {"take_profit": "195.00"}
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_modify_position_exits_both_legs(respx_mock: respx.MockRouter) -> None:
+    route = respx_mock.patch("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(200, json=SAMPLE_EXIT_MOVE)
+    )
+    async with AsyncTradingGateway() as gw:
+        await gw.modify_position_exits("pos_001", stop_loss="180.00", take_profit="195.00")
+    assert json.loads(route.calls.last.request.content) == {
+        "stop_loss": "180.00",
+        "take_profit": "195.00",
+    }
+
+
+async def test_modify_position_exits_requires_a_leg() -> None:
+    """Neither leg given is a caller bug — fail locally, don't spend a round-trip."""
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(ValueError, match="stop_loss.*take_profit"):
+            await gw.modify_position_exits("pos_001")
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_modify_position_exits_encodes_position_id(respx_mock: respx.MockRouter) -> None:
+    route = respx_mock.patch("/v1/positions/pos%2F001").mock(
+        return_value=httpx.Response(200, json=SAMPLE_EXIT_MOVE)
+    )
+    async with AsyncTradingGateway() as gw:
+        await gw.modify_position_exits("pos/001", stop_loss="180.00")
+    assert route.called
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_modify_position_exits_conflict_is_still_protected(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """409 — the move was rejected and the original exit restored."""
+    respx_mock.patch("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(
+            409,
+            json={"code": "ORDER_NOT_MODIFIABLE", "message": "leg not tracked"},
+        )
+    )
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(ConflictError) as exc_info:
+            await gw.modify_position_exits("pos_001", stop_loss="180.00")
+    assert exc_info.value.status_code == 409
+    # A caller must be able to tell "still protected" from "unprotected".
+    assert not isinstance(exc_info.value, PositionUnprotectedError)
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_modify_position_exits_bad_gateway_is_unprotected(
+    respx_mock: respx.MockRouter,
+) -> None:
+    """502 — the exit was cancelled and could not be re-established."""
+    respx_mock.patch("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(
+            502,
+            json={"code": "PROVIDER_ERROR", "message": "exit could not be restored"},
+        )
+    )
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(PositionUnprotectedError) as exc_info:
+            await gw.modify_position_exits("pos_001", stop_loss="180.00")
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.code == "PROVIDER_ERROR"
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_modify_position_exits_does_not_retry_on_502(respx_mock: respx.MockRouter) -> None:
+    """A 502 here means the position is uncovered — re-firing the move is unsafe.
+
+    Suppression comes from PATCH being outside ``_RETRYABLE_METHODS`` rather
+    than from anything endpoint-specific; this pins that safety property for
+    the one call where a silent retry would move an exit twice.
+    """
+    route = respx_mock.patch("/v1/positions/pos_001").mock(
+        return_value=httpx.Response(502, json={"code": "PROVIDER_ERROR", "message": "gone"})
+    )
+    async with AsyncTradingGateway(max_retries=3) as gw:
+        with pytest.raises(PositionUnprotectedError):
+            await gw.modify_position_exits("pos_001", stop_loss="180.00")
+    assert route.call_count == 1
+
+
+@respx.mock(base_url="http://localhost:8080")
+async def test_502_elsewhere_is_not_position_unprotected(respx_mock: respx.MockRouter) -> None:
+    """Only the exit-move endpoint promotes a 502.
+
+    A proxy in front of the gateway returning Bad Gateway on an unrelated call
+    must not tell a caller their position is uncovered — that invites a flatten
+    over infra noise.
+    """
+    respx_mock.get("/v1/account").mock(
+        return_value=httpx.Response(502, text="<html>bad gateway</html>")
+    )
+    async with AsyncTradingGateway(max_retries=0) as gw:
+        with pytest.raises(APIStatusError) as exc_info:
+            await gw.get_account()
+    assert not isinstance(exc_info.value, PositionUnprotectedError)
 
 
 @respx.mock(base_url="http://localhost:8080")

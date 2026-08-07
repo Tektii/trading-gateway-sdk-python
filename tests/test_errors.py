@@ -9,6 +9,7 @@ from tektii.errors import (
     ConflictError,
     NotFoundError,
     OrderRejectedError,
+    PositionUnprotectedError,
     ProviderUnavailableError,
     RateLimitedError,
     ServerError,
@@ -27,6 +28,7 @@ def test_error_hierarchy() -> None:
     assert issubclass(ConflictError, APIStatusError)
     assert issubclass(ProviderUnavailableError, APIStatusError)
     assert issubclass(ServerError, APIStatusError)
+    assert issubclass(PositionUnprotectedError, APIStatusError)
 
 
 def test_api_error_attributes() -> None:
@@ -63,6 +65,18 @@ def test_raise_for_status_429() -> None:
 def test_raise_for_status_409() -> None:
     with pytest.raises(ConflictError):
         raise_for_status(409, "ORDER_NOT_MODIFIABLE", "Order already filled")
+
+
+def test_raise_for_status_502_is_not_globally_unprotected() -> None:
+    """502 only means "position uncovered" on the exit-move endpoint.
+
+    ``modify_position_exits`` promotes it there. A 502 from anywhere else —
+    a proxy or load balancer in front of the gateway — must stay generic, or
+    callers would be told to flatten a position over unrelated infra noise.
+    """
+    with pytest.raises(APIStatusError) as exc_info:
+        raise_for_status(502, "PROVIDER_ERROR", "Bad gateway")
+    assert type(exc_info.value) is APIStatusError
 
 
 def test_raise_for_status_503() -> None:
