@@ -535,15 +535,25 @@ async def test_close_position_partial_sends_body(respx_mock: respx.MockRouter) -
             quantity=Decimal("5"),
             order_type="limit",
             limit_price="185.50",
-            cancel_associated_orders=True,
         )
     sent = json.loads(route.calls.last.request.content)
     assert sent == {
         "quantity": "5",
         "order_type": "limit",
         "limit_price": "185.50",
-        "cancel_associated_orders": True,
     }
+
+
+async def test_close_position_rejects_cancel_associated_orders() -> None:
+    """The gateway dropped this field, so the SDK must not advertise it.
+
+    It never worked — passing ``False`` never kept the exit legs resting — so
+    the caller is better served by an error at the call site than by a flag
+    the gateway silently ignores.
+    """
+    async with AsyncTradingGateway() as gw:
+        with pytest.raises(TypeError, match="cancel_associated_orders"):
+            gw.close_position("pos_001", cancel_associated_orders=False)
 
 
 @respx.mock(base_url="http://localhost:8080", assert_all_called=False)

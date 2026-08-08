@@ -484,7 +484,6 @@ class AsyncTradingGateway:
         quantity: str | Decimal | None = None,
         order_type: str | None = None,
         limit_price: str | Decimal | None = None,
-        cancel_associated_orders: bool | None = None,
     ) -> OrderHandle:
         """Close a position (partially or fully).
 
@@ -503,8 +502,6 @@ class AsyncTradingGateway:
             body["order_type"] = order_type
         if limit_price is not None:
             body["limit_price"] = str(limit_price)
-        if cancel_associated_orders is not None:
-            body["cancel_associated_orders"] = cancel_associated_orders
 
         data = await self._delete(
             f"/v1/positions/{self._seg(position_id)}",

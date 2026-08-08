@@ -366,7 +366,6 @@ class TradingGateway:
         quantity: str | Decimal | None = None,
         order_type: str | None = None,
         limit_price: str | Decimal | None = None,
-        cancel_associated_orders: bool | None = None,
     ) -> OrderHandle:
         """Close a position (partially or fully)."""
         return self._run(
@@ -375,7 +374,6 @@ class TradingGateway:
                 quantity=quantity,
                 order_type=order_type,
                 limit_price=limit_price,
-                cancel_associated_orders=cancel_associated_orders,
             )
         )
 
