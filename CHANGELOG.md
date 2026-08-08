@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0](https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.9.1...v2.0.0) (2026-08-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* close_position() no longer accepts cancel_associated_orders. Remove the argument from your calls; there is no replacement, as the gateway always cancels the associated orders.
+
+### Features
+
+* drop cancel_associated_orders from close_position ([#37](https://github.com/Tektii/trading-gateway-sdk-python/issues/37)) ([9ee61cd](https://github.com/Tektii/trading-gateway-sdk-python/commit/9ee61cd891e2ef0947fd119a13f9a0cd05e379e4))
+* **orders:** reject order types the provider doesn't support ([#35](https://github.com/Tektii/trading-gateway-sdk-python/issues/35)) ([e55b8b3](https://github.com/Tektii/trading-gateway-sdk-python/commit/e55b8b3a41529a36f6e7acd054e5e2f6578dd81d))
+* **positions:** add modify_position_exits for moving a resting SL/TP ([#33](https://github.com/Tektii/trading-gateway-sdk-python/issues/33)) ([246932a](https://github.com/Tektii/trading-gateway-sdk-python/commit/246932a37873e2a9c56eba67c0c1840d133c8f92))
+* **stream:** surface unparseable frames as UnknownEvent ([#36](https://github.com/Tektii/trading-gateway-sdk-python/issues/36)) ([79fc6f9](https://github.com/Tektii/trading-gateway-sdk-python/commit/79fc6f9ecc5daac540c126314fe5afe1c4ce90c9))
+
 ## [1.9.1](https://github.com/Tektii/trading-gateway-sdk-python/compare/v1.9.0...v1.9.1) (2026-07-13)
 
 
