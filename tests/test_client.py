@@ -239,6 +239,12 @@ def test_sync_close_position(respx_mock: respx.MockRouter) -> None:
     assert sent == {"quantity": "5"}
 
 
+def test_sync_close_position_rejects_cancel_associated_orders() -> None:
+    """The sync signature must drop the dead knob in step with the async one."""
+    with pytest.raises(TypeError, match="cancel_associated_orders"):
+        TradingGateway().close_position("pos_001", cancel_associated_orders=False)
+
+
 @respx.mock(base_url="http://localhost:8080", assert_all_called=False)
 def test_sync_close_position_rejects_unsupported_order_type(
     respx_mock: respx.MockRouter,
