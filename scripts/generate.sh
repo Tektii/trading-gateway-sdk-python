@@ -65,7 +65,7 @@ generate() {
         --use-union-operator \
         --field-constraints \
         --capitalise-enum-members \
-        --use-decimal
+        --use-decimal-for-multiple-of
 }
 
 normalise() {
