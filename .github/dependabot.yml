@@ -27,6 +27,7 @@ updates:
 
   # GitHub Actions — the supply chain with the largest blast radius.
   # SHA-pinned references are bumped by PR so reviewers see what's changing.
+  # All action bumps land in one weekly PR rather than one PR per action.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -38,3 +39,7 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
