@@ -1,0 +1,76 @@
+schema: spec-driven
+
+context: |
+  Repo: trading-gateway-sdk-python — open-source Python SDK for the Trading Gateway,
+  published to PyPI as `tektii`. Wraps the gateway's REST + WebSocket API with typed
+  Pydantic v2 models and sync/async clients. A client library only: no backend logic.
+  Package in src/tektii/: async_client.py (the real implementation, httpx), client.py
+  (sync wrapper), stream.py (WebSocket event streams with hidden auto-ACK), models.py
+  (hand-written WebSocket events + re-exports), _generated/models.py (generated from the
+  gateway's OpenAPI spec), errors.py, _http.py. Tests in tests/.
+
+  This repository is public. Artifacts must stand on their own: no private ticket ids,
+  no internal links, no commercial or roadmap context.
+
+  Read before writing artifacts:
+  - CLAUDE.md — architecture, design decisions, auto-ACK, conventions, testing patterns
+  - CONTRIBUTING.md — quality bar, code style, model regeneration
+  - README.md — the documented public API
+  - src/tektii/__init__.py — `__all__` is the exported public surface
+
+  Hard constraints:
+  - The public Python API is the contract: everything in `tektii.__all__`, the client
+    method signatures, the model and event types, and the exception hierarchy.
+    Releases follow SemVer, driven by Conventional Commits via release-please
+  - Python 3.11+; CI runs 3.11, 3.12 and 3.13
+  - Fully typed (ships py.typed): mypy with disallow_untyped_defs; no `# type: ignore`
+    outside the generated models
+  - ruff lint + ruff format, line length 100
+  - src/tektii/_generated/models.py is never hand-edited — regenerate with
+    ./scripts/generate.sh
+  - Financial values are `str` end to end, never float or Decimal; enums are StrEnum
+  - Async is the real implementation; the sync client and stream wrap it
+  - Flat client methods with keyword arguments for requests; Pydantic models for
+    responses only
+  - Auto-ACK is always on and hidden: no public `auto_ack` parameter, no public `ack()`
+  - A stream never silently drops a frame and never dies on one bad frame
+  - Test coverage stays at or above 85% (CI gate)
+
+  Out of scope for a change here (separate projects):
+  - trading-gateway — the open-source gateway this SDK is a client of. Its
+    openapi.json is the source of truth for the REST models; its WebSocket protocol
+    is the source of truth for the hand-written event models
+  - The Tektii backtest engine and platform — speak the same wire protocol; closed source
+  A change that needs work in another project names it as a dependency; it does not
+  spec that project's behaviour.
+
+rules:
+  proposal:
+    - One feature or gap per change; state Non-goals explicitly
+    - Say whether the change alters the public Python API and whether it is breaking (SemVer major)
+    - Name any cross-repo dependency — especially a trading-gateway REST or WebSocket protocol change — and what it must deliver first
+  specs:
+    - Spec observable behaviour (client methods, returned models, raised exceptions, stream events and ACK timing), not implementation
+    - A change to the public Python API says so, naming the added, changed or removed symbols and signatures
+    - Do not spec the gateway's own behaviour; spec how the SDK presents it
+  design:
+    - Skip design.md unless the change alters the public API shape, touches both the REST clients and the stream, or carries a real tradeoff
+    - Prefer the simplest solution that works; justify any new abstraction or runtime dependency
+  tasks:
+    - Test-first — each behaviour task is preceded by a task writing its failing test
+    - Include a model regen task (`./scripts/generate.sh`, then `./scripts/generate.sh --check`) when the change depends on a gateway OpenAPI change
+    - Include a task exporting new public symbols from src/tektii/__init__.py and `__all__`, and a README.md update when documented usage changes
+    - Final tasks are always `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, `uv run mypy src/` and `uv run pytest --cov --cov-fail-under=85`
+
+operations:
+  apply:
+    guidance:
+      - Follow TDD — confirm each test fails before implementing
+      - Stop and report on any unexpected failure rather than retrying
+      - Do not hand-edit CHANGELOG.md or src/tektii/_version.py; release-please writes both from the commit history
+      - Do not commit; present diff summary, test results and a proposed commit message, then wait for Josh's approval
+      - The proposed commit message (and pull request title) follows Conventional Commits — feat, fix, perf, refactor, docs, test, build, ci, chore or revert, lowercase subject — because release-please derives the version bump and changelog from it; a breaking public API change uses `!` and a `BREAKING CHANGE:` footer
+      - On approval commit on a branch named with a conventional-commit type prefix, never on main, staging files by name; do not push
+  archive:
+    guidance:
+      - Archive only after the change is committed
