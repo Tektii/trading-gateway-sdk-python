@@ -49,10 +49,13 @@ Run `openspec init --tools claude` once to generate the local `/opsx:*` commands
 
 1. **Explore** (optional) — `/opsx:explore` to investigate before committing to a change. The outcome is a proposal, or nothing.
 2. **Propose** — `/opsx:propose "<idea>"` writes `proposal.md`, delta specs, `design.md` (when warranted) and `tasks.md`. Reviewed before any code.
-3. **Apply** — `/opsx:apply` works the tasks **test-first**: failing test, then minimum code to pass.
+3. **Apply** — `/opsx:apply` works the tasks **test-first** on a branch (never `main`): failing test, then minimum code to pass. One commit per task, files staged by name.
 4. **Quality gates** — what CI runs: `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, `uv run mypy src/`, `uv run pytest --cov --cov-fail-under=85`; plus `./scripts/generate.sh --check` when models are involved.
-5. **Ship** — after approval of the diff, commit on a branch and ship as a pull request. The PR title must be a [Conventional Commit](https://www.conventionalcommits.org/) — release-please derives the version bump and `CHANGELOG.md` from it.
-6. **Archive** — `/opsx:archive` merges the delta specs into `openspec/specs/` and moves the change to `changes/archive/`.
+5. **Ship** — push the branch, `gh pr create`, then work Copilot's review through the `pr-review` skill (`.claude/skills/pr-review/`) and stop. The change's OpenSpec artifacts ship in the same pull request as its code. The PR title must be a lowercase [Conventional Commit](https://www.conventionalcommits.org/) — pull requests are squash-merged and release-please derives the version bump and `CHANGELOG.md` from it, so never hand-edit `CHANGELOG.md` or `src/tektii/_version.py`. Never merge a pull request and never enable auto-merge; the maintainer merges.
+6. **Verify** — `/opsx:verify` checks the merged code against the change's specs and tasks. Always run `/opsx:verify` before archiving; never fold it into apply.
+7. **Archive** — `/opsx:archive`, only after the pull request is merged, merges the delta specs into `openspec/specs/` and moves the change to `changes/archive/`.
+
+`.worktreeinclude` lists the git-ignored files (`.claude/settings.local.json`, the generated `/opsx:*` commands and skills) copied into a new `claude --worktree` checkout; add to it when a session needs another.
 
 `openspec list` shows in-flight changes; `openspec validate --all` checks them.
 

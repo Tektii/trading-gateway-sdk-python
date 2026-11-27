@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.claude/skills/pr-review/wait-for-review.sh *)",
+      "Bash(gh pr *)",
+      "Bash(gh api *)"
+    ]
+  }
+}

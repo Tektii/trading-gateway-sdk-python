@@ -60,7 +60,9 @@ rules:
     - Test-first — each behaviour task is preceded by a task writing its failing test
     - Include a model regen task (`./scripts/generate.sh`, then `./scripts/generate.sh --check`) when the change depends on a gateway OpenAPI change
     - Include a task exporting new public symbols from src/tektii/__init__.py and `__all__`, and a README.md update when documented usage changes
-    - Final tasks are always `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, `uv run mypy src/` and `uv run pytest --cov --cov-fail-under=85`
+    - Every task ends with a verifiable completion criterion
+    - The closing gate tasks are always `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, `uv run mypy src/` and `uv run pytest --cov --cov-fail-under=85`
+    - 'The final task is always "Open the pull request and work Copilot''s review through the `pr-review` skill. Verify every thread is resolved and the pull request is ready to merge; do not merge."'
 
 operations:
   apply:
@@ -68,9 +70,12 @@ operations:
       - Follow TDD — confirm each test fails before implementing
       - Stop and report on any unexpected failure rather than retrying
       - Do not hand-edit CHANGELOG.md or src/tektii/_version.py; release-please writes both from the commit history
-      - Do not commit; present diff summary, test results and a proposed commit message, then wait for Josh's approval
-      - The proposed commit message (and pull request title) follows Conventional Commits — feat, fix, perf, refactor, docs, test, build, ci, chore or revert, lowercase subject — because release-please derives the version bump and changelog from it; a breaking public API change uses `!` and a `BREAKING CHANGE:` footer
-      - On approval commit on a branch named with a conventional-commit type prefix, never on main, staging files by name; do not push
+      - Work on a branch named with a conventional-commit type prefix, never on main; commit per task, staging files by name
+      - Commit messages and the pull request title follow Conventional Commits — feat, fix, perf, refactor, docs, test, build, ci, chore or revert, lowercase subject — because release-please derives the version bump and changelog from them; a breaking public API change uses `!` and a `BREAKING CHANGE:` footer
+      - The change's OpenSpec artifacts ship in the same pull request as its code
+      - Verify reads the tree, not the task list — a ticked task is not evidence the work is there
+      - When the tasks are done, push the branch, open the pull request, work Copilot's review with the `pr-review` skill, then stop; never merge and never enable auto-merge
   archive:
     guidance:
-      - Archive only after the change is committed
+      - Always run `/opsx:verify` before archiving; never fold it into apply
+      - Archive only after the pull request is merged
