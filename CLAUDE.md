@@ -37,6 +37,27 @@ uv run mypy src/                 # Type check (note: not --strict, generated cod
 ./scripts/generate.sh --check    # Check if models are out of date (CI drift check)
 ```
 
+## Specs and Change Management (OpenSpec)
+
+Work is specced with [OpenSpec](https://github.com/Fission-AI/OpenSpec) in `openspec/`, committed in full. One change = one feature or gap.
+
+- `openspec/specs/` — living specs, the source of truth for current behaviour
+- `openspec/changes/` — in-flight proposals (proposal, design, delta specs, tasks); archived to `openspec/changes/archive/`
+- `openspec/config.yaml` — project context and the rules for each artifact, apply and archive
+
+Run `openspec init --tools claude` once to generate the local `/opsx:*` commands and skills (git-ignored).
+
+1. **Explore** (optional) — `/opsx:explore` to investigate before committing to a change. The outcome is a proposal, or nothing.
+2. **Propose** — `/opsx:propose "<idea>"` writes `proposal.md`, delta specs, `design.md` (when warranted) and `tasks.md`. Reviewed before any code.
+3. **Apply** — `/opsx:apply` works the tasks **test-first**: failing test, then minimum code to pass.
+4. **Quality gates** — what CI runs: `uv run ruff check src/ tests/`, `uv run ruff format --check src/ tests/`, `uv run mypy src/`, `uv run pytest --cov --cov-fail-under=85`; plus `./scripts/generate.sh --check` when models are involved.
+5. **Ship** — after approval of the diff, commit on a branch and ship as a pull request. The PR title must be a [Conventional Commit](https://www.conventionalcommits.org/) — release-please derives the version bump and `CHANGELOG.md` from it.
+6. **Archive** — `/opsx:archive` merges the delta specs into `openspec/specs/` and moves the change to `changes/archive/`.
+
+`openspec list` shows in-flight changes; `openspec validate --all` checks them.
+
+**This repo is public.** Everything under `openspec/` must stand on its own — no private ticket ids, internal links, or commercial context. The public Python API is the contract: a change that alters it says so.
+
 ## Model Generation
 
 REST API models are generated from the Trading Gateway's OpenAPI spec using `datamodel-code-generator`. Config is in `pyproject.toml` under `[tool.datamodel-codegen]`.
