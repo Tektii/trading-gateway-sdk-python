@@ -29,7 +29,11 @@ typed inline. Run it in the background, never behind a foreground sleep:
 Shell variables do not outlive a call, so each command below sets its own `N`
 and `REPO`.
 
-It gives up after 15 minutes. If nothing has come by then, re-request once
+Exit 2 means `gh` itself failed (auth, rate limit, network), not that the
+review is missing: read the error, fix it and run the script again without
+re-requesting.
+
+It gives up after 15 minutes (exit 1). If nothing has come by then, re-request once
 (`gh pr edit $N --add-reviewer @copilot`) and run it again. Still nothing:
 post a pull request comment saying Copilot never reviewed, tell the
 maintainer, stop. That re-request retries a request that went unanswered; it
