@@ -2,8 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(.claude/skills/pr-review/wait-for-review.sh *)",
-      "Bash(gh pr *)",
+      "Bash(gh repo view *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr edit *)",
+      "Bash(gh pr comment *)",
       "Bash(gh api *)"
+    ],
+    "deny": [
+      "Bash(gh pr merge *)"
     ]
   }
 }
