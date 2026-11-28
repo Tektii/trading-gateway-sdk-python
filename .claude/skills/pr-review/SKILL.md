@@ -177,8 +177,11 @@ tell the maintainer which files conflict. Otherwise run the gate from step 4
 on the rebased branch and push with `git push --force-with-lease` — the only
 force push this skill makes.
 
-Wait for the checks to finish on the head (`gh pr checks $N --watch`). A red
-check is yours to fix as in step 4.
+Wait for the checks to finish on the head (`gh pr checks $N --watch`). On a
+head just pushed it can return at once with "no checks reported" and a merge
+state of `UNKNOWN`, before the checks register: run it again, or ask
+`gh pr view $N --json mergeStateStatus` until it settles. A red check is yours
+to fix as in step 4.
 
 ## 8. Close
 
