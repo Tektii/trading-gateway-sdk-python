@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Waits up to 15 minutes for Copilot's review of a pull request's current head.
-# Exits 0 once it exists, 1 if it never came.
+# Exits 0 once it exists, 1 if it never came. A failed `gh` call exits at once
+# with its own status rather than counting as "no review yet".
 set -euo pipefail
 N=$1
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-HEAD=$(gh pr view "$N" --json headRefOid -q .headRefOid)
 for _ in $(seq 15); do
-  if gh api "repos/$REPO/pulls/$N/reviews?per_page=100" \
-    --jq "[.[] | select(.user.login == \"copilot-pull-request-reviewer[bot]\" and .commit_id == \"$HEAD\")] | length > 0" \
-    | grep -q true; then
+  # Read the head on every poll: a push during the wait moves it.
+  HEAD=$(gh pr view "$N" --json headRefOid -q .headRefOid)
+  found=$(gh api "repos/$REPO/pulls/$N/reviews?per_page=100" \
+    --jq "[.[] | select(.user.login == \"copilot-pull-request-reviewer[bot]\" and .commit_id == \"$HEAD\")] | length > 0")
+  if [ "$found" = true ]; then
     echo "Copilot reviewed $HEAD"
     exit 0
   fi
