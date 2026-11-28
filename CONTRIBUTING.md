@@ -79,8 +79,9 @@ gateway to catch drift.
 - [ ] Branch is up to date with `main`.
 - [ ] `ruff check`, `ruff format --check`, `mypy`, and `pytest` all pass.
 - [ ] New behaviour has tests.
-- [ ] `CHANGELOG.md` has an entry under `## [Unreleased]` describing the
-      change (user-facing wording, not internal detail).
+- [ ] The pull request title is a lowercase
+      [Conventional Commit](https://www.conventionalcommits.org/) —
+      release-please writes `CHANGELOG.md` from it, so do not edit that file.
 - [ ] If you regenerated models, the regenerated
       `src/tektii/_generated/models.py` is committed.
 - [ ] Public API additions are exported from `src/tektii/__init__.py`
